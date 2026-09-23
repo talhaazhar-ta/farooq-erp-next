@@ -183,13 +183,14 @@ export const FIELD_CLASSES: Record<ImportedStore, FieldClass> = {
     mapped: [
       "id", "receiptNumber", "direction", "partyId", "partyType", "isRefund", "amount", "method", "reference",
       "paymentDate", "note", "receivedBy", "status", "createdAt",
-      "reversedAt", // only on reversed payments: dates the reversing journal entry
+      "reversedAt", // only on reversed payments: dates the reversing journal entry; stored in payments.reversed_at
+      "reverseReason", // stored in payments.reverse_reason (S3)
     ],
     docOnly: [
       {
         reason: "snapshots / provenance — kept for the audit trail",
         keys: [
-          "partyNameSnapshot", "partyOwnerSnapshot", "regionSnapshot", "createdBy", "description", "reverseReason",
+          "partyNameSnapshot", "partyOwnerSnapshot", "regionSnapshot", "createdBy", "description",
         ],
       },
     ],
@@ -206,12 +207,12 @@ export const FIELD_CLASSES: Record<ImportedStore, FieldClass> = {
     ignored: [],
   },
   customerReturns: {
-    mapped: ["id", "returnNumber", "customerId", "returnDate", "creditAmount", "treatment", "status", "createdAt"],
+    mapped: ["id", "returnNumber", "customerId", "invoiceId", "returnDate", "creditAmount", "treatment", "status", "createdAt"],
     docOnly: [
       {
         reason: "return detail — M2 (line items live in customerReturnItems)",
         keys: [
-          "clientOpId", "invoiceId", "invoiceNumber", "customerNameSnapshot", "regionSnapshot", "warehouseId",
+          "clientOpId", "invoiceNumber", "customerNameSnapshot", "regionSnapshot", "warehouseId",
           "warehouseSnapshot", "reason", "condition", "notes", "description", "replacementValue", "totalQty",
           "lineCount", "createdBy", "updatedAt", "cancelledAt", "cancelReason",
         ],

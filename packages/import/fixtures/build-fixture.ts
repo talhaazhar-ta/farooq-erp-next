@@ -10,6 +10,13 @@
  * Money is integer paisa. Expected balances, worked out by hand:
  *   customers  C1 1,900,000  C2 100,000  C3 470,000  C4 15,000  C5 450,000  C6 0        (Σ 2,935,000)
  *   suppliers  S1 870,000    S2 390,000  S3 -40,000  S4 92,000   S5 0                    (Σ net 1,312,000; owed>0 1,352,000)
+ *
+ * Invoice outstanding (S3: grandTotal − allocations of POSTED payments − credit of non-CANCELLED returns linked to it):
+ *   inv-1 1,000,000 − 400,000 = 600,000     inv-2 500,000 − 300,000 = 200,000     inv-5 300,000 (nothing against it)
+ *   inv-6 750,000 − 250,000 − 30,000 (DRAFT return cr-3 counts) = 470,000
+ *   inv-7 400,000 − 50,000 (cr-4; the CANCELLED cr-2 does not count) = 350,000
+ *   inv-8 600,000 − 60,000 (cr-1) = 540,000        (inv-3 DRAFT and inv-4 CANCELLED are never collectable)
+ * Purchase outstanding (total − allocations): pur-1 900,000 − 250,000 = 650,000, pur-2 400,000, pur-4 100,000.
  */
 import { writeFileSync } from "node:fs";
 import path from "node:path";
@@ -79,8 +86,8 @@ const allocation = (id: string, paymentId: string, target: { invoiceId?: string;
   id, paymentId, invoiceId: target.invoiceId ?? null, purchaseId: target.purchaseId ?? null, amount, createdAt,
 });
 
-const customerReturn = (id: string, no: string, customerId: string, returnDate: string, creditAmount: number, status: string, treatment: string, createdAt: string): Doc => ({
-  id, returnNumber: no, clientOpId: `op-${id}`, invoiceId: "inv-8", invoiceNumber: "INV-2026-000007", customerId, customerNameSnapshot: "",
+const customerReturn = (id: string, no: string, customerId: string, invoiceId: string, invoiceNumber: string, returnDate: string, creditAmount: number, status: string, treatment: string, createdAt: string): Doc => ({
+  id, returnNumber: no, clientOpId: `op-${id}`, invoiceId, invoiceNumber, customerId, customerNameSnapshot: "",
   regionSnapshot: "", warehouseId: "wh-1", warehouseSnapshot: "Main Godown", returnDate, reason: "", treatment, condition: "",
   notes: "", description: "", creditAmount, replacementValue: 0, totalQty: 1, lineCount: 1, status, createdBy: "Fixture", createdAt,
 });
@@ -174,10 +181,10 @@ export function buildFixture() {
       allocation("al-4", "pay-6", { invoiceId: "inv-6" }, 250000, T("2026-02-12", "07:00:00")),
     ],
     customerReturns: [
-      customerReturn("cr-1", "CR-2026-000001", "cust-1", "2026-02-16", 60000, "POSTED", "REFUND", T("2026-02-16", "06:00:00")),
-      customerReturn("cr-2", "CR-2026-000002", "cust-5", "2026-02-13", 40000, "CANCELLED", "CUSTOMER_CREDIT", T("2026-02-13", "05:00:00")),
-      customerReturn("cr-3", "CR-2026-000003", "cust-3", "2026-02-17", 30000, "DRAFT", "CUSTOMER_CREDIT", T("2026-02-17", "05:00:00")), // DRAFT counts
-      customerReturn("cr-4", "CR-2026-000004", "cust-5", "2026-02-18", 50000, "POSTED", "ADJUST_OUTSTANDING_BALANCE", T("2026-02-18", "05:00:00")),
+      customerReturn("cr-1", "CR-2026-000001", "cust-1", "inv-8", "INV-2026-000007", "2026-02-16", 60000, "POSTED", "REFUND", T("2026-02-16", "06:00:00")),
+      customerReturn("cr-2", "CR-2026-000002", "cust-5", "inv-7", "INV-2026-000006", "2026-02-13", 40000, "CANCELLED", "CUSTOMER_CREDIT", T("2026-02-13", "05:00:00")),
+      customerReturn("cr-3", "CR-2026-000003", "cust-3", "inv-6", "INV-2026-000005", "2026-02-17", 30000, "DRAFT", "CUSTOMER_CREDIT", T("2026-02-17", "05:00:00")), // DRAFT counts
+      customerReturn("cr-4", "CR-2026-000004", "cust-5", "inv-7", "INV-2026-000006", "2026-02-18", 50000, "POSTED", "ADJUST_OUTSTANDING_BALANCE", T("2026-02-18", "05:00:00")),
     ],
     supplierReturns: [
       supplierReturn("sr-1", "SR-2026-000001", "sup-1", "2026-02-21", 80000, "POSTED", T("2026-02-21", "05:00:00")),

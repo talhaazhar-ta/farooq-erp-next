@@ -99,6 +99,11 @@ the same migrations and the same tests. `pnpm test` runs the workspace **one pac
 test database/port. Test Postgres clusters are created with `--encoding=UTF8` (Windows' default WIN1252 cannot store
 Urdu shop names) — keep it that way for any new cluster.
 
+**apps/api tests** (S3) also import `@farooq/import` (the ledger-bridge test imports the synthetic fixture through the real importer),
+so `pnpm build` must have run first; `pnpm --filter @farooq/api typecheck` covers `test/` too (`tsconfig.test.json`). Tests seed their own
+uniquely-named shops/suppliers and never truncate, except `payments-ledger-bridge`, which runs the importer (it wipes the business tables).
+Payment endpoints, the Zod schemas S4 should import, and the permission model are listed in `docs/STATUS.md`.
+
 **Running the app locally** (manual/browser checks, not CI):
 
 ```
@@ -112,7 +117,7 @@ pnpm --filter @farooq/web dev             # Vite on :5173
 
 `apps/web/.env.example` has `VITE_API_URL` (defaults to `http://localhost:3000`).
 
-**Importing a legacy backup + reconciliation** (S2; local Postgres only — the importer refuses any non-local host):
+**Importing a legacy backup + reconciliation** (S2; local Postgres only — the importer refuses any non-local host; the database must be migrated through `0003`, the importer checks):
 
 ```
 # with the dev DB from above running and migrated:
@@ -136,7 +141,7 @@ script used.
 ## Roadmap
 
 See `docs/ROADMAP.md` for the full milestone list. Current milestone: **M1 — Foundation + Payments**
-(S1 scaffold+DB+auth ✓ → S2 importer+reconciliation ✓ → S3 Payments service+API → S4 Payments UI+statements).
+(S1 scaffold+DB+auth ✓ → S2 importer+reconciliation ✓ → S3 Payments service+API ✓ → S4 Payments UI+statements).
 
 ## Where to look for more detail
 

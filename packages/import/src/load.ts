@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@farooq/db";
 import { ImportError } from "./validate.js";
-import { prepareImport, type AccountCode, type Prepared } from "./prepare.js";
+import { prepareImport, type Prepared } from "./prepare.js";
 
 const {
   accountAdjustments,
@@ -24,11 +24,6 @@ const {
   suppliers,
   warehouses,
 } = schema;
-
-const ACCOUNT_CODES: AccountCode[] = [
-  "CASH", "RECEIVABLES", "PAYABLES", "SALES", "SALES_RETURNS", "PURCHASES", "PURCHASE_RETURNS", "OPENING_EQUITY",
-  "ACCOUNT_ADJUSTMENTS", "MILLING_CLEARING", "MILLING_FEES",
-];
 
 /**
  * The importer wipes business tables, so it only ever runs against a local database (CLAUDE.md: local-only
@@ -89,15 +84,18 @@ export async function runImport(backup: unknown, opts: ImportOptions): Promise<I
   try {
     const db = drizzle(client, { schema });
 
-    const present = await client`SELECT to_regclass('public.account_adjustments') AS t`;
-    if (!present[0]?.t) {
-      throw new ImportError("The database is not migrated to the S2 schema — run `pnpm --filter @farooq/api db:migrate` first.");
+    // The newest column the importer writes (migration 0003): if it is missing, the database is behind the code.
+    const present = await client`
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'returns' AND column_name = 'invoice_id'`;
+    if (present.length === 0) {
+      throw new ImportError("The database is not migrated to the S3 schema — run `pnpm --filter @farooq/api db:migrate` first.");
     }
 
     return await db.transaction(async (tx) => {
       const accountRows = await tx.select({ id: accounts.id, code: accounts.code }).from(accounts);
       const accountId = new Map(accountRows.map((a) => [a.code, a.id]));
-      const missing = ACCOUNT_CODES.filter((c) => !accountId.has(c));
+      const missing = schema.ACCOUNT_CODES.filter((c) => !accountId.has(c));
       if (missing.length) throw new ImportError(`Control accounts missing (${missing.join(", ")}) — run the migrations.`);
 
       await tx.execute(dsql.raw(`TRUNCATE TABLE ${WIPED_TABLES.join(", ")}`));

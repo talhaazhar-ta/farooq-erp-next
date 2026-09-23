@@ -14,6 +14,19 @@ import type {
   suppliers,
   warehouses,
 } from "@farooq/db";
+import {
+  custLine,
+  paymentLines,
+  paymentMemo,
+  paymentReversalMemo,
+  plainLine as plain,
+  reversedLines,
+  supLine,
+  PAYMENT_REVERSAL_SOURCE,
+  PAYMENT_SOURCE,
+  type AccountCode,
+  type JournalLineDraft,
+} from "@farooq/db";
 import { ALLOWED_STATUS } from "./classification.js";
 import {
   checkClassification,
@@ -49,26 +62,9 @@ export function uuidV5(name: string): string {
 
 /* ── journal model ─────────────────────────────────────────────────────── */
 
-export type AccountCode =
-  | "CASH"
-  | "RECEIVABLES"
-  | "PAYABLES"
-  | "SALES"
-  | "SALES_RETURNS"
-  | "PURCHASES"
-  | "PURCHASE_RETURNS"
-  | "OPENING_EQUITY"
-  | "ACCOUNT_ADJUSTMENTS"
-  | "MILLING_CLEARING"
-  | "MILLING_FEES";
-
-export interface JournalLineDraft {
-  account: AccountCode;
-  partyType?: "CUSTOMER" | "SUPPLIER";
-  partyId?: string;
-  debitP: number;
-  creditP: number;
-}
+/* The line/account model and the payment posting shapes live in @farooq/db (`ledger.ts`) so the importer and
+   the live PaymentsService post identically; re-exported here for the importer's own modules. */
+export type { AccountCode, JournalLineDraft };
 
 export interface JournalDraft {
   id: string;
@@ -196,13 +192,7 @@ export function prepareImport(raw: unknown): Prepared {
   ) => {
     journal.push({ id: uuidV5(`journal:${sourceType}:${sourceId}`), date, memo, sourceType, sourceId, createdAt, lines });
   };
-  /** The same lines with debit/credit swapped — a reversing entry. */
-  const swapped = (lines: JournalLineDraft[]): JournalLineDraft[] =>
-    lines.map((l) => ({ ...l, debitP: l.creditP, creditP: l.debitP }));
-
-  const plain = (account: AccountCode, debitP: number, creditP: number): JournalLineDraft => ({ account, debitP, creditP });
-  const custLine = (partyId: string, debitP: number, creditP: number): JournalLineDraft => ({ account: "RECEIVABLES", partyType: "CUSTOMER", partyId, debitP, creditP });
-  const supLine = (partyId: string, debitP: number, creditP: number): JournalLineDraft => ({ account: "PAYABLES", partyType: "SUPPLIER", partyId, debitP, creditP });
+  const swapped = reversedLines;
 
   /** A signed customer-side amount: positive = DR RECEIVABLES / CR `counter`; negative swaps the sides. */
   const receivableLines = (customerId: string, counter: AccountCode, signedP: number): JournalLineDraft[] => {
@@ -382,22 +372,18 @@ export function prepareImport(raw: unknown): Prepared {
       receiptNumber,
       receivedBy: optStr("payments", d, "receivedBy"),
       ...(createdAt ? { createdAt } : {}),
+      reversedAt: status === "REVERSED" ? reversedAt : null,
+      reverseReason: optStr("payments", d, "reverseReason"),
       legacyDoc: d,
     });
     paymentRefs.push({ id, direction, partyType, partyId, reference, note, status });
 
-    // IN + customer: DR CASH / CR RECEIVABLES.  OUT + customer (refund): DR RECEIVABLES / CR CASH.
-    // OUT + supplier: DR PAYABLES / CR CASH.
-    const lines: JournalLineDraft[] =
-      direction === "IN"
-        ? [plain("CASH", amountP, 0), custLine(partyId, 0, amountP)]
-        : partyType === "CUSTOMER"
-          ? [custLine(partyId, amountP, 0), plain("CASH", 0, amountP)]
-          : [supLine(partyId, amountP, 0), plain("CASH", 0, amountP)];
-    const what = direction === "IN" ? "Payment received" : partyType === "CUSTOMER" ? "Refund paid" : "Payment made";
-    post("PAYMENT", id, paymentDate, `${what} ${receiptNumber}`, createdAt, lines);
+    // The posting shapes (IN / refund / supplier payment) are the shared builder's — the same one the live service uses.
+    const lines = paymentLines({ direction, partyType, partyId, amountP });
+    const memoOf = { direction, partyType, receiptNumber };
+    post(PAYMENT_SOURCE, id, paymentDate, paymentMemo(memoOf), createdAt, lines);
     if (status === "REVERSED") {
-      post("PAYMENT_REVERSAL", id, paymentDate, `Reversal of ${receiptNumber}`, reversedAt ?? createdAt, swapped(lines));
+      post(PAYMENT_REVERSAL_SOURCE, id, paymentDate, paymentReversalMemo(receiptNumber), reversedAt ?? createdAt, swapped(lines));
     }
   }
 
@@ -434,6 +420,9 @@ export function prepareImport(raw: unknown): Prepared {
     const treatment = optOneOf("customerReturns", d, "treatment", TREATMENTS);
     const number = optStr("customerReturns", d, "returnNumber");
     const createdAt = optTimestamp("customerReturns", d, "createdAt");
+    // The invoice the goods came back against (feeds `Invoices.outstanding`). Blank = a return with no invoice.
+    const invoiceKey = optStr("customerReturns", d, "invoiceId");
+    const invoiceId = invoiceKey ? resolve("customerReturns", d, "invoiceId", "invoice", invoiceIds) : null;
 
     // The legacy app links a REFUND return to its cash payment only by reference + note prefix (editAmountCheck).
     let refundPaymentId: string | null = null;
@@ -444,7 +433,7 @@ export function prepareImport(raw: unknown): Prepared {
       if (matches.length === 1) refundPaymentId = matches[0]!.id;
       else warnings.push(`customerReturns[id=${d.id}]: REFUND treatment but ${matches.length} matching cash payments (expected 1); refund_payment_id left empty`);
     }
-    rows.returns.push({ id, legacyId: d.id, kind: "CUSTOMER", partyId: customerId, returnNumber: number, date, totalP, status, treatment, refundPaymentId, ...(createdAt ? { createdAt } : {}), legacyDoc: d });
+    rows.returns.push({ id, legacyId: d.id, kind: "CUSTOMER", partyId: customerId, invoiceId, returnNumber: number, date, totalP, status, treatment, refundPaymentId, ...(createdAt ? { createdAt } : {}), legacyDoc: d });
     // Quirk: DRAFT returns already count; only CANCELLED is excluded.
     if (status !== "CANCELLED") {
       post("CUSTOMER_RETURN", id, date, `Customer return ${number ?? ""}`.trim(), createdAt, [plain("SALES_RETURNS", totalP, 0), custLine(customerId, 0, totalP)]);
@@ -459,7 +448,7 @@ export function prepareImport(raw: unknown): Prepared {
     const status = oneOf("supplierReturns", d, "status", ALLOWED_STATUS.supplierReturns);
     const number = optStr("supplierReturns", d, "returnNumber");
     const createdAt = optTimestamp("supplierReturns", d, "createdAt");
-    rows.returns.push({ id, legacyId: d.id, kind: "SUPPLIER", partyId: supplierId, returnNumber: number, date, totalP, status, treatment: null, refundPaymentId: null, ...(createdAt ? { createdAt } : {}), legacyDoc: d });
+    rows.returns.push({ id, legacyId: d.id, kind: "SUPPLIER", partyId: supplierId, invoiceId: null, returnNumber: number, date, totalP, status, treatment: null, refundPaymentId: null, ...(createdAt ? { createdAt } : {}), legacyDoc: d });
     if (status !== "CANCELLED") {
       post("SUPPLIER_RETURN", id, date, `Supplier return ${number ?? ""}`.trim(), createdAt, [supLine(supplierId, totalP, 0), plain("PURCHASE_RETURNS", 0, totalP)]);
     }

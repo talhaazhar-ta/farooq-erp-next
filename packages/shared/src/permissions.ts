@@ -6,6 +6,12 @@
  *
  * The old app enforced these in the browser only. Here they are enforced
  * server-side by the permission guard — deny by default.
+ *
+ * `PAYMENT_PAYOUT` is NEW in S3 (no legacy equivalent): it gates money going
+ * OUT (supplier payments and refunds to shops). In the legacy app the SALES
+ * role's `PAYMENT_CREATE` also let it record cash paid out (old repo open
+ * item 7). Owner decision — to allow SALES to pay out again, add
+ * "PAYMENT_PAYOUT" to its list below.
  */
 
 export const PERMISSIONS = [
@@ -19,6 +25,7 @@ export const PERMISSIONS = [
   "SALES_CREATE",
   "PURCHASE_CREATE",
   "PAYMENT_CREATE",
+  "PAYMENT_PAYOUT",
   "COLLECTION_VIEW",
   "COLLECTION_EXPORT",
   "FINANCIAL_REPORT_VIEW",
@@ -69,6 +76,7 @@ export const ROLE_PERMISSIONS: Record<Exclude<Role, "OWNER">, Permission[]> = {
     "SALES_CREATE",
     "PURCHASE_CREATE",
     "PAYMENT_CREATE",
+    "PAYMENT_PAYOUT",
     "COLLECTION_VIEW",
     "COLLECTION_EXPORT",
     "FINANCIAL_REPORT_VIEW",
@@ -83,6 +91,7 @@ export const ROLE_PERMISSIONS: Record<Exclude<Role, "OWNER">, Permission[]> = {
     "MASTER_DATA_VIEW",
     "CUSTOMER_EDIT",
     "PAYMENT_CREATE",
+    "PAYMENT_PAYOUT",
     "COLLECTION_VIEW",
     "COLLECTION_EXPORT",
     "FINANCIAL_REPORT_VIEW",
@@ -104,4 +113,9 @@ export function permissionsForRole(role: Role): Permission[] {
 export function roleHasPermission(role: Role, permission: Permission): boolean {
   if (role === "OWNER") return true;
   return ROLE_PERMISSIONS[role].includes(permission);
+}
+
+/** True when the role holds at least one of the permissions (used by read routes open to several roles). */
+export function roleHasAnyPermission(role: Role, permissions: readonly Permission[]): boolean {
+  return permissions.some((p) => roleHasPermission(role, p));
 }

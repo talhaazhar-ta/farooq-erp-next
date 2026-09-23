@@ -40,6 +40,7 @@ const cases: [name: string, backup: () => unknown, message: RegExp][] = [
   ["an invoice for a customer that doesn't exist", () => mutate((b) => { b.data.invoices[0].customerId = "ghost"; }), /invoices\[id=inv-1\]\.customerId: dangling reference — no customer with id ghost/],
   ["a payment to a supplier that doesn't exist", () => mutate((b) => { b.data.payments[3].partyId = "ghost"; }), /payments\[id=pay-4\]\.partyId: dangling reference — no supplier with id ghost/],
   ["an allocation to an invoice that doesn't exist", () => mutate((b) => { b.data.paymentAllocations[0].invoiceId = "ghost"; }), /paymentAllocations\[id=al-1\]\.invoiceId: dangling reference/],
+  ["a customer return against an invoice that doesn't exist", () => mutate((b) => { b.data.customerReturns[0].invoiceId = "ghost"; }), /customerReturns\[id=cr-1\]\.invoiceId: dangling reference — no invoice with id ghost/],
   ["a milling job for a mill that doesn't exist", () => mutate((b) => { b.data.millingJobs[0].millId = "ghost"; }), /millingJobs\[id=mil-1\]\.millId: dangling reference/],
   ["a customer with a region that doesn't exist", () => mutate((b) => { b.data.customers[0].region = "rg-ghost"; }), /customers\[id=cust-1\]\.region: dangling reference/],
   ["a duplicate legacy id", () => mutate((b) => { b.data.customers.push({ ...b.data.customers[0] }); }), /Duplicate legacy id in 'customers': cust-1/],

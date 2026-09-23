@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { permissionsForRole, PERMISSIONS, roleHasPermission } from "./permissions.js";
+import { permissionsForRole, PERMISSIONS, roleHasAnyPermission, roleHasPermission } from "./permissions.js";
 
 describe("permissions", () => {
   it("OWNER has every permission", () => {
@@ -26,5 +26,38 @@ describe("permissions", () => {
         expect(PERMISSIONS).toContain(permission);
       }
     }
+  });
+});
+
+describe("PAYMENT_PAYOUT (new in S3 — legacy open item 7)", () => {
+  it("is held by OWNER, MANAGER and ACCOUNTANT", () => {
+    for (const role of ["OWNER", "MANAGER", "ACCOUNTANT"] as const) {
+      expect(roleHasPermission(role, "PAYMENT_PAYOUT")).toBe(true);
+    }
+  });
+
+  it("is NOT held by SALES or INVENTORY, although SALES keeps PAYMENT_CREATE (receiving money)", () => {
+    expect(roleHasPermission("SALES", "PAYMENT_CREATE")).toBe(true);
+    for (const role of ["SALES", "INVENTORY"] as const) {
+      expect(roleHasPermission(role, "PAYMENT_PAYOUT")).toBe(false);
+      expect(permissionsForRole(role)).not.toContain("PAYMENT_PAYOUT");
+    }
+  });
+
+  it("TRANSACTION_CORRECT (reverse / edit amount) stays with OWNER, MANAGER, ACCOUNTANT only", () => {
+    expect(roleHasPermission("SALES", "TRANSACTION_CORRECT")).toBe(false);
+    expect(roleHasPermission("INVENTORY", "TRANSACTION_CORRECT")).toBe(false);
+    expect(roleHasPermission("ACCOUNTANT", "TRANSACTION_CORRECT")).toBe(true);
+  });
+});
+
+describe("roleHasAnyPermission", () => {
+  const readers = ["PAYMENT_CREATE", "COLLECTION_VIEW", "FINANCIAL_REPORT_VIEW"] as const;
+  it("passes when any one permission is held", () => {
+    expect(roleHasAnyPermission("SALES", readers)).toBe(true); // PAYMENT_CREATE + COLLECTION_VIEW
+    expect(roleHasAnyPermission("ACCOUNTANT", readers)).toBe(true);
+  });
+  it("fails for the warehouse role, which holds none of them", () => {
+    expect(roleHasAnyPermission("INVENTORY", readers)).toBe(false);
   });
 });

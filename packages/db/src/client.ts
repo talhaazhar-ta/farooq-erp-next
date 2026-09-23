@@ -1,4 +1,6 @@
 import { drizzle } from "drizzle-orm/postgres-js";
+import type { PgDatabase } from "drizzle-orm/pg-core";
+import type { PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema.js";
 
@@ -14,3 +16,9 @@ export function createDb(connectionString: string) {
 }
 
 export type Db = ReturnType<typeof createDb>["db"];
+
+/** The transaction handle drizzle passes to `db.transaction(async (tx) => ...)`. */
+export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+/** Either the pool (`Db`) or an open transaction (`Tx`): read helpers take this so they work inside and outside one. */
+export type Executor = PgDatabase<PostgresJsQueryResultHKT, typeof schema>;

@@ -70,6 +70,20 @@ describe("fixture import + reconciliation (the proof that exercises every ledger
     });
   });
 
+  it("S3 columns: each customer return is linked to its invoice; a REVERSED payment carries reversed_at / reverse_reason", async () => {
+    const links = await sql`
+      SELECT r.legacy_id AS ret, i.legacy_id AS inv FROM returns r JOIN invoices i ON i.id = r.invoice_id
+      WHERE r.kind = 'CUSTOMER' ORDER BY r.legacy_id`;
+    expect(links.map((l) => [l.ret, l.inv])).toEqual([["cr-1", "inv-8"], ["cr-2", "inv-7"], ["cr-3", "inv-6"], ["cr-4", "inv-7"]]);
+    const [sup] = await sql`SELECT count(*)::int AS n FROM returns WHERE kind = 'SUPPLIER' AND invoice_id IS NOT NULL`;
+    expect(sup!.n).toBe(0);
+    const rev = await sql`SELECT legacy_id, reversed_at, reverse_reason FROM payments WHERE status = 'REVERSED' ORDER BY legacy_id`;
+    expect(rev.map((r) => [r.legacy_id, r.reverse_reason])).toEqual([["pay-2", "wrong shop"], ["pay-5", "duplicate"]]);
+    expect(new Date(rev[0]!.reversed_at).toISOString()).toBe("2026-02-07T08:00:00.000Z");
+    const [posted] = await sql`SELECT count(*)::int AS n FROM payments WHERE status = 'POSTED' AND (reversed_at IS NOT NULL OR reverse_reason IS NOT NULL)`;
+    expect(posted!.n).toBe(0);
+  });
+
   it("loads the sequence counters exactly as in the backup, so S3's next receipt number continues from the live one", async () => {
     const backup = fixture();
     const rows = await sql`SELECT kind, year, n FROM sequences ORDER BY kind`;

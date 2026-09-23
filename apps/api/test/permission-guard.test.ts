@@ -3,7 +3,7 @@ import type { ExecutionContext } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { describe, expect, it } from "vitest";
 import { PermissionGuard } from "../src/auth/permission.guard.js";
-import { PERMISSION_KEY, PUBLIC_KEY, SESSION_ONLY_KEY } from "../src/auth/permission.decorator.js";
+import { ANY_PERMISSION_KEY, PERMISSION_KEY, PUBLIC_KEY, SESSION_ONLY_KEY } from "../src/auth/permission.decorator.js";
 import type { AuthenticatedUser } from "../src/auth/session.guard.js";
 
 function makeContext(user: AuthenticatedUser | undefined): ExecutionContext {
@@ -24,7 +24,7 @@ function makeContext(user: AuthenticatedUser | undefined): ExecutionContext {
  * decorator metadata off the (undecorated) fake handler/class above. */
 function makeGuard(metadata: Record<string, unknown>): PermissionGuard {
   const reflector = new Reflector();
-  reflector.getAllAndOverride = ((key: string) => metadata[key]) as typeof reflector.getAllAndOverride;
+  reflector.getAllAndOverride = ((key: string) => metadata[key]) as unknown as typeof reflector.getAllAndOverride;
   return new PermissionGuard(reflector);
 }
 
@@ -78,5 +78,33 @@ describe("PermissionGuard (deny by default)", () => {
       csrfToken: "t",
     });
     expect(guard.canActivate(ctx)).toBe(true);
+  });
+});
+
+describe("PermissionGuard — any-of routes (RequireAnyPermission)", () => {
+  const user = (role: AuthenticatedUser["role"]): AuthenticatedUser => ({ id: "u1", name: "N", username: "n", role, sessionId: "s1", csrfToken: "t" });
+  const readers = ["PAYMENT_CREATE", "COLLECTION_VIEW", "FINANCIAL_REPORT_VIEW"];
+
+  it("lets a role through when it holds ANY ONE of the listed permissions", () => {
+    const guard = makeGuard({ [ANY_PERMISSION_KEY]: readers });
+    for (const role of ["OWNER", "MANAGER", "ACCOUNTANT", "SALES"] as const) {
+      expect(guard.canActivate(makeContext(user(role))), role).toBe(true);
+    }
+  });
+
+  it("refuses the warehouse role, which holds none of them", () => {
+    const guard = makeGuard({ [ANY_PERMISSION_KEY]: readers });
+    expect(() => guard.canActivate(makeContext(user("INVENTORY")))).toThrow(ForbiddenException);
+  });
+
+  it("an empty any-of list matches nobody (deny by default), not even OWNER", () => {
+    const guard = makeGuard({ [ANY_PERMISSION_KEY]: [] });
+    expect(() => guard.canActivate(makeContext(user("MANAGER")))).toThrow(ForbiddenException);
+  });
+
+  it("PAYMENT_PAYOUT is held by MANAGER/ACCOUNTANT/OWNER and refused to SALES", () => {
+    const guard = makeGuard({ [PERMISSION_KEY]: "PAYMENT_PAYOUT" });
+    for (const role of ["OWNER", "MANAGER", "ACCOUNTANT"] as const) expect(guard.canActivate(makeContext(user(role))), role).toBe(true);
+    for (const role of ["SALES", "INVENTORY"] as const) expect(() => guard.canActivate(makeContext(user(role))), role).toThrow(ForbiddenException);
   });
 });

@@ -180,7 +180,11 @@ export const journalLines = pgTable(
     debitP: moneyP("debit_p"),
     creditP: moneyP("credit_p"),
   },
-  (t) => [index("journal_lines_entry_id_idx").on(t.entryId)],
+  (t) => [
+    index("journal_lines_entry_id_idx").on(t.entryId),
+    // A party's balance is the sum of its lines on RECEIVABLES / PAYABLES (S3 balance endpoints).
+    index("journal_lines_party_idx").on(t.partyType, t.partyId),
+  ],
 );
 
 /* ── audit log (append-only — see migration 0002 for the REVOKE) ────────── */
@@ -197,12 +201,13 @@ export const auditLog = pgTable("audit_log", {
 });
 
 /* ── receipt / document numbering ────────────────────────────────────────
-   Not a Postgres SEQUENCE object: the old app's `FDB.nextNumber` (01-db.js)
-   increments a per-kind-per-year counter and consumes the number even if the
-   parent record then fails to save, so gaps in the printed number are
-   meaningful (an attempt happened) — matched here, not "fixed". Callers
-   must increment under `SELECT ... FOR UPDATE` in the same transaction as
-   the record they're numbering. */
+   Not a Postgres SEQUENCE object: a per-kind-per-year counter, taken with
+   `INSERT ... ON CONFLICT (kind, year) DO UPDATE SET n = n + 1 RETURNING n`
+   inside the same transaction as the document it numbers (S3 `nextNumber`).
+   That mirrors the legacy `FDB.nextNumber`, which also read and wrote the
+   counter inside the document's own transaction: a rolled-back save does NOT
+   consume a number, so committed numbers are gap-free. (S1's note claimed the
+   opposite; the legacy code says otherwise for payments.) */
 export const sequences = pgTable(
   "sequences",
   {
@@ -231,7 +236,10 @@ export const invoices = pgTable(
     createdAt: createdAt(),
     legacyDoc: legacyDoc(),
   },
-  (t) => [index("invoices_invoice_number_idx").on(t.invoiceNumber)],
+  (t) => [
+    index("invoices_invoice_number_idx").on(t.invoiceNumber),
+    index("invoices_customer_idx").on(t.customerId),
+  ],
 );
 
 export const purchases = pgTable(
@@ -247,7 +255,10 @@ export const purchases = pgTable(
     createdAt: createdAt(),
     legacyDoc: legacyDoc(),
   },
-  (t) => [index("purchases_purchase_number_idx").on(t.purchaseNumber)],
+  (t) => [
+    index("purchases_purchase_number_idx").on(t.purchaseNumber),
+    index("purchases_supplier_idx").on(t.supplierId),
+  ],
 );
 
 /* ── payments (S2 loads them; S3 builds the services on these tables) ─────
@@ -271,6 +282,13 @@ export const payments = pgTable(
     receiptNumber: text("receipt_number").notNull().unique(),
     receivedBy: text("received_by"),
     createdAt: createdAt(),
+    /** Who recorded / reversed the voucher (S3). Null on imported rows: the legacy app stored a display name, kept in `received_by`. */
+    createdBy: uuid("created_by").references(() => users.id),
+    reversedAt: timestamp("reversed_at", { withTimezone: true }),
+    reversedBy: uuid("reversed_by").references(() => users.id),
+    reverseReason: text("reverse_reason"),
+    /** Client-chosen key that makes a create request safe to repeat (the legacy app had no guard against a double-clicked Save). */
+    idempotencyKey: text("idempotency_key").unique(),
     legacyDoc: legacyDoc(),
   },
   (t) => [
@@ -278,6 +296,8 @@ export const payments = pgTable(
     check("payments_party_type_chk", sql`${t.partyType} IN ('CUSTOMER', 'SUPPLIER')`),
     check("payments_status_chk", sql`${t.status} IN ('POSTED', 'REVERSED')`),
     index("payments_party_idx").on(t.partyType, t.partyId),
+    // The payments list screen: newest business date first, then newest entry.
+    index("payments_list_idx").on(t.paymentDate.desc(), t.createdAt.desc()),
   ],
 );
 
@@ -297,6 +317,8 @@ export const paymentAllocations = pgTable(
   (t) => [
     check("payment_allocations_one_target_chk", sql`num_nonnulls(${t.invoiceId}, ${t.purchaseId}) = 1`),
     index("payment_allocations_payment_idx").on(t.paymentId),
+    index("payment_allocations_invoice_idx").on(t.invoiceId),
+    index("payment_allocations_purchase_idx").on(t.purchaseId),
   ],
 );
 
@@ -307,6 +329,8 @@ export const returns = pgTable(
     legacyId: legacyId(),
     kind: text("kind").notNull(), // CUSTOMER | SUPPLIER
     partyId: uuid("party_id"),
+    /** Customer returns only: the invoice the goods came back against. Feeds `Invoices.outstanding` (S3). */
+    invoiceId: uuid("invoice_id").references((): AnyPgColumn => invoices.id),
     returnNumber: text("return_number"),
     date: date("date").notNull(),
     /** creditAmount (customer return) or debitAmount (supplier return), paisa. */
@@ -320,7 +344,10 @@ export const returns = pgTable(
     createdAt: createdAt(),
     legacyDoc: legacyDoc(),
   },
-  (t) => [index("returns_return_number_idx").on(t.returnNumber)],
+  (t) => [
+    index("returns_return_number_idx").on(t.returnNumber),
+    index("returns_invoice_idx").on(t.invoiceId),
+  ],
 );
 
 /* ── ledger-feeding documents added by later legacy patch modules ─────────

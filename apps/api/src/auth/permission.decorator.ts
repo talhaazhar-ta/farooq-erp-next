@@ -4,6 +4,14 @@ import type { Permission } from "@farooq/shared";
 export const PERMISSION_KEY = "permission";
 export const RequirePermission = (permission: Permission) => SetMetadata(PERMISSION_KEY, permission);
 
+/**
+ * The route is open to a role holding ANY ONE of these permissions (read routes shared by several roles, e.g. the
+ * payments list: PAYMENT_CREATE | COLLECTION_VIEW | FINANCIAL_REPORT_VIEW). Still deny-by-default: an empty list
+ * matches nobody.
+ */
+export const ANY_PERMISSION_KEY = "anyPermission";
+export const RequireAnyPermission = (...permissions: Permission[]) => SetMetadata(ANY_PERMISSION_KEY, permissions);
+
 /** Explicit opt-out for routes with no business data at all (health check, login). */
 export const PUBLIC_KEY = "public";
 export const Public = () => SetMetadata(PUBLIC_KEY, true);
