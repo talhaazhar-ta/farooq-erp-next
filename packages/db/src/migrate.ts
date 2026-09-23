@@ -7,7 +7,7 @@ import path from "node:path";
 import { APP_DB_ROLE, parseAppDbPassword, requireEnv } from "./env.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const MIGRATIONS_FOLDER = path.join(__dirname, "migrations");
+export const MIGRATIONS_FOLDER = path.join(__dirname, "../migrations");
 
 /** Runs the checked-in migrations against `adminUrl`, then syncs the
  * farooq_app role's password to `appPassword` (never checked into git). */
@@ -31,7 +31,7 @@ async function main() {
   console.log("Migrations applied; farooq_app password synced.");
 }
 
-// Only run when executed directly (`tsx src/db/migrate.ts`), not when
+// Only run when executed directly (`tsx src/migrate.ts`), not when
 // imported by the test harness.
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
   main().catch((err) => {

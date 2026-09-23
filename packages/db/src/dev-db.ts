@@ -7,14 +7,14 @@ import { existsSync } from "node:fs";
 /**
  * Persistent local dev Postgres (no Docker needed) — separate from the
  * throwaway one `test/setup/global-setup.ts` spins up per test run. Data
- * survives restarts under apps/api/.embedded-postgres/dev (gitignored).
+ * survives restarts under packages/db/.embedded-postgres/dev (gitignored).
  *
- * Usage: `pnpm --filter @farooq/api db:dev`, then in another terminal
+ * Usage: `pnpm --filter @farooq/db db:dev`, then in another terminal
  * `pnpm --filter @farooq/api db:migrate && pnpm --filter @farooq/api db:seed`
  * and `pnpm --filter @farooq/api dev` / `pnpm --filter @farooq/web dev`.
  */
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DEV_DB_DIR = path.join(__dirname, "../../.embedded-postgres/dev");
+const DEV_DB_DIR = path.join(__dirname, "../.embedded-postgres/dev");
 const DEV_PORT = 54329;
 const DEV_USER = "postgres";
 const DEV_PASSWORD = "postgres";

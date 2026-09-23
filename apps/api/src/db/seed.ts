@@ -3,8 +3,8 @@ import argon2 from "argon2";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { PERMISSIONS, ROLES, ROLE_PERMISSIONS } from "@farooq/shared";
-import { requireEnv } from "./env.js";
-import { rolePermissions, users } from "./schema.js";
+import { requireEnv } from "@farooq/db";
+import { rolePermissions, users } from "@farooq/db";
 import { eq } from "drizzle-orm";
 
 async function main() {

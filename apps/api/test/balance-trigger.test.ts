@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createDb } from "../src/db/client.js";
-import { accounts, journalEntries, journalLines } from "../src/db/schema.js";
+import { createDb } from "@farooq/db";
+import { accounts, journalEntries, journalLines } from "@farooq/db";
 import { TEST_APP_URL } from "./setup/db-config.js";
 
 describe("journal balance trigger (0001_balance_trigger_and_grants.sql)", () => {

@@ -4,8 +4,8 @@ import { eq } from "drizzle-orm";
 import type { FastifyRequest } from "fastify";
 import type { Role } from "@farooq/shared";
 import { DB } from "../db/db.module.js";
-import type { Db } from "../db/client.js";
-import { sessions, users } from "../db/schema.js";
+import type { Db } from "@farooq/db";
+import { sessions, users } from "@farooq/db";
 import { PUBLIC_KEY } from "./permission.decorator.js";
 import { SESSION_COOKIE_NAME } from "./constants.js";
 

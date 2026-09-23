@@ -4,8 +4,8 @@ import { randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { Role } from "@farooq/shared";
 import { DB } from "../db/db.module.js";
-import type { Db } from "../db/client.js";
-import { sessions, users } from "../db/schema.js";
+import type { Db } from "@farooq/db";
+import { sessions, users } from "@farooq/db";
 import { LOGIN_LOCKOUT_MS, LOGIN_MAX_ATTEMPTS, SESSION_ABSOLUTE_TTL_MS } from "./constants.js";
 
 export interface LoginResult {

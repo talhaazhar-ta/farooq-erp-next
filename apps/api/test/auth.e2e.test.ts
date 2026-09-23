@@ -4,8 +4,8 @@ import fastifyCookie from "@fastify/cookie";
 import argon2 from "argon2";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module.js";
-import { createDb } from "../src/db/client.js";
-import { users } from "../src/db/schema.js";
+import { createDb } from "@farooq/db";
+import { users } from "@farooq/db";
 import { TEST_APP_URL } from "./setup/db-config.js";
 import { eq } from "drizzle-orm";
 

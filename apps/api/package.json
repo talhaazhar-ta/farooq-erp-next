@@ -10,12 +10,12 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src test --max-warnings=0",
     "test": "vitest run",
-    "db:dev": "tsx src/db/dev-db.ts",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx src/db/migrate.ts",
+    "db:dev": "tsx ../../packages/db/src/dev-db.ts",
+    "db:migrate": "tsx ../../packages/db/src/migrate.ts",
     "db:seed": "tsx src/db/seed.ts"
   },
   "dependencies": {
+    "@farooq/db": "workspace:*",
     "@farooq/shared": "workspace:*",
     "@fastify/cookie": "^11.0.2",
     "@nestjs/common": "^11.0.1",
@@ -34,7 +34,6 @@
   "devDependencies": {
     "@nestjs/testing": "^11.0.1",
     "@types/node": "^22.10.6",
-    "drizzle-kit": "^0.30.2",
     "embedded-postgres": "^17.5.0-beta.2",
     "eslint": "^9.18.0",
     "tsx": "^4.19.2",
