@@ -1,0 +1,22 @@
+{
+  "name": "@farooq/import",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Legacy backup JSON -> Postgres importer + reconciliation report. Filled in by S2.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src --max-warnings=0",
+    "test": "echo \"no tests yet (S2)\" && exit 0"
+  },
+  "dependencies": {
+    "@farooq/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "eslint": "^9.18.0"
+  }
+}

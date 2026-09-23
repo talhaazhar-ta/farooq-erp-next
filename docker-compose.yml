@@ -1,0 +1,18 @@
+# For a future VPS deployment (not used yet — CLAUDE.md rule #2: this
+# project never deploys anything). Local dev/test uses `embedded-postgres`
+# instead so nobody needs Docker installed; this file exists for later.
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: farooq_erp
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

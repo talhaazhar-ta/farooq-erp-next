@@ -81,9 +81,38 @@ None of `apps/`, `packages/` or `docker-compose.yml` exist yet as of this scaffo
 
 ## How to build / test locally
 
-Not yet set up — S1 creates the pnpm workspace, the embedded-postgres test harness, and the exact commands.
-This section gets filled in as part of S1's definition of done; don't hand-write commands here until they exist
-and have been run.
+Requires Node >=20 and `pnpm` (`npm install -g pnpm` if missing — no Docker needed for local dev/test).
+
+```
+pnpm install
+pnpm build        # topological: packages/shared first, then apps/api + apps/web + packages/import
+pnpm typecheck
+pnpm lint
+pnpm test          # apps/api spins up its own throwaway embedded-postgres per run (test/setup/global-setup.ts)
+```
+
+All four must be clean before pushing. `apps/api`'s tests use `embedded-postgres` (no system Postgres or
+Docker required); CI instead points them at a real Postgres service container via `EXTERNAL_TEST_DATABASE_URL`
+(see `.github/workflows/ci.yml`) — both paths run the same migrations and the same tests.
+
+**Running the app locally** (manual/browser checks, not CI):
+
+```
+pnpm --filter @farooq/api db:dev        # starts a persistent local embedded-postgres on :54329, prints the URLs
+# in another terminal, after copying apps/api/.env.example -> apps/api/.env and filling it in:
+pnpm --filter @farooq/api db:migrate
+pnpm --filter @farooq/api db:seed        # role_permissions + the OWNER user from OWNER_* env vars
+pnpm --filter @farooq/api dev             # NestJS on :3000
+pnpm --filter @farooq/web dev             # Vite on :5173
+```
+
+`apps/web/.env.example` has `VITE_API_URL` (defaults to `http://localhost:3000`).
+
+**Browser smoke-check pattern** (no Claude-in-Chrome extension available in this environment; established in
+S1 for future sessions to reuse): `npx playwright install chromium` once, then drive the dev server with a
+short Playwright script (`chromium.launch()` → `page.goto()` → fill `#username`/`#password` → submit → assert
+on shell content) run from a temp/scratch location, never committed. See S1's STATUS.md entry for the exact
+script used.
 
 ## Roadmap
 
