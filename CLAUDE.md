@@ -141,7 +141,7 @@ script used.
 ## Roadmap
 
 See `docs/ROADMAP.md` for the full milestone list. Current milestone: **M1 — Foundation + Payments**
-(S1 scaffold+DB+auth ✓ → S2 importer+reconciliation ✓ → S3 Payments service+API ✓ → S4 Payments UI+statements).
+(S1 scaffold+DB+auth ✓ → S2 importer+reconciliation ✓ → S3 Payments service+API ✓ → S4 search/statement/receipt server side → S5 Payments UI + e2e).
 
 ## Where to look for more detail
 

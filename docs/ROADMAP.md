@@ -15,7 +15,8 @@ Payments module (money in/out, the most rule-heavy legacy area) end to end.
 | **S1: scaffold + DB + auth** | pnpm workspace, NestJS/Fastify API, React/Vite shell, shared package (permissions, Zod), Drizzle schema + migrations + balance trigger, embedded-postgres test harness, sessions/CSRF/roles guard, owner seed, CI | CI green; sign-in works in headless Chrome; unbalanced journal insert is rejected by the DB |
 | **S2: importer + reconciliation** | backup JSON → Postgres, legacy ledger port, reconciliation report, synthetic fixture test | run on a real nightly backup: **0 balance differences** for every shop and supplier (numbers go in STATUS) |
 | **S3: Payments service + API** | receive/pay/refund/reverse/editAmount with the server-side guards, journal + audit, tests for each legacy rule | all service tests green; forbidden roles get 403 |
-| **S4: Payments UI + statements** | list/search, the 5 actions, receipt print, shop/supplier statement, Playwright e2e | e2e green; screenshots reviewed; "not seen by a person" list in STATUS |
+| **S4: search v2, statements, receipt model, company profile (server + shared)** | server-side payment search (port of module 38) + CSV, statement endpoints on the journal, receipt model, snapshots, `business` import, shared fold/date-parse/money/words helpers | search parity vs a JS reference; statements equal `LegacyLedger`; reconciliation still 0 differences |
+| **S5: Payments UI + statements screen + e2e** | list/filters, the 5 actions, receipt print, statement screen, Playwright e2e (split from the original S4 — too big for one session) | e2e green; screenshots reviewed; "not seen by a person" list in STATUS; M1 complete |
 
 ## After M1 (not yet broken into sessions)
 
