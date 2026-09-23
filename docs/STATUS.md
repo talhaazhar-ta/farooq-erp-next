@@ -31,7 +31,7 @@ From the repo root: `pnpm install && pnpm build && pnpm typecheck && pnpm lint &
 - `pnpm test`: **101 tests, all passing** (was 15): `packages/shared` 4, `packages/import` **86**, `apps/api` 11 —
   the original 15 unchanged. Also run with `EXTERNAL_TEST_DATABASE_URL` pointing at a separate Postgres database
   (the CI path): identical, all green.
-- CI on the pushed commits: see "CI" under Known issues (filled in after the push).
+- **CI is green** on the S2 commit `7beecc4`: [run 35900681059](https://github.com/talhaazhar-ta/farooq-erp-next/actions/runs/35900681059) — install, build, typecheck, lint and test (against the real Postgres service container via `EXTERNAL_TEST_DATABASE_URL`) all passed. The `packages/db` extraction commit `e665f16` was also green on its own ([run 35896422554](https://github.com/talhaazhar-ta/farooq-erp-next/actions/runs/35896422554)).
 
 ### Proof 1 — the synthetic fixture (this is the one that validates the logic)
 
@@ -167,7 +167,6 @@ re-run the same command on it.
   documents reconcile; their real accounting is for M8 / the owner.
 - Same-day statement order differs from legacy for a few parties (informational — see deviation 5).
 - `apps/web` still has no tests (placeholder script) — no UI work in S2.
-- **CI:** see below.
 
 ## Carried over from S1 (still in force; S3 will meet these)
 
