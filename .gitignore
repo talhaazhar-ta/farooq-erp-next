@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+.turbo/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Business data (backups, anything derived from real customer/supplier/financial data) — never in git
+/data/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Test artifacts
+coverage/
+playwright-report/
+test-results/
+
+# Embedded postgres data dirs (if left on disk by embedded-postgres)
+.embedded-postgres/
