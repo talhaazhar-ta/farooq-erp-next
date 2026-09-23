@@ -38,7 +38,7 @@ From the repo root: `pnpm install && pnpm build && pnpm typecheck && pnpm lint &
   | `packages/import` | `import-fixture` 21, `fail-loudly` 32, `classification-and-cli` 9, `safety-net` 5, `legacy-ledger` 17, `idempotency-and-guards` 4 | **88** (was 86; the 86 are unchanged) |
   | `apps/api` | `payments-http` 25, `payments-reverse-edit` 22, `payments-concurrency` 18, `payments-receive` 18, `payments-units` 13, `payments-ledger-bridge` 9, `payments-pay-refund` 8, `permission-guard` 9 (was 5), `auth.e2e` 4, `balance-trigger` 2 | **128** (was 11) |
 
-- **CI:** CI_RUN_PLACEHOLDER
+- **CI:** **green** on the S3 commit `d75c908`: [run 35906891970](https://github.com/talhaazhar-ta/farooq-erp-next/actions/runs/35906891970) — install, build, typecheck, lint and test (against the real Postgres service container via `EXTERNAL_TEST_DATABASE_URL`) all passed. So both database paths (embedded locally, real Postgres 17 in CI) run all 245 tests.
 - **Mutation checks** (broke a rule on purpose, confirmed tests go red, restored): SALES granted `PAYMENT_PAYOUT` (2 red); explicit-allocation
   cap removed (2); `editAmount` not rewriting the journal (5); `reverse` posting no reversal entry (8); auto-allocation newest-first (1);
   return credit ignored in outstanding (2); reversed payments still counted as paid (1); receipt-number year taken from UTC (1); double
