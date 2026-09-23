@@ -153,14 +153,13 @@ build / test locally":
 - `packages/import` is an empty stub — by design, S2's job.
 - The web bundle (406.92 kB / 124.67 kB gzip) is unsplit (single chunk) — fine at this size; revisit route-
   based code-splitting once there are enough routes for it to matter.
-- CI (`.github/workflows/ci.yml`) has **not been run on GitHub yet** — this environment has no `gh`
-  authentication / push access configured to verify a live Actions run. The workflow was written to mirror
-  exactly what was run and verified locally (`install` -> `build` -> `typecheck` -> `lint` -> `test`, Postgres
-  service container via `EXTERNAL_TEST_DATABASE_URL`), and the local `pnpm test` run using
-  `EXTERNAL_TEST_DATABASE_URL` (pointed at the same locally-running dev Postgres, skipping the
-  embedded-postgres bootstrap) was spot-checked to confirm that code path also works, but "CI is green on the
-  pushed commit" specifically could not be confirmed from inside this session. **Next session (or the user)
-  should check the Actions tab on the first push and report back if it's red.**
+- First CI push (`3a88a5a`) failed: `pnpm-workspace.yaml`'s `allowBuilds` only listed
+  `@embedded-postgres/windows-x64` (the variant this Windows dev machine resolves), so CI's Linux runner hit
+  `ERR_PNPM_IGNORED_BUILDS` on `@embedded-postgres/linux-x64` before install could finish. Fixed in `0a2e484`
+  by listing all `@embedded-postgres/*` platform packages. **CI is now green on the pushed commit**:
+  [run 35849257085](https://github.com/talhaazhar-ta/farooq-erp-next/actions/runs/35849257085) — install,
+  build, typecheck, lint, and test (against the real Postgres service container via
+  `EXTERNAL_TEST_DATABASE_URL`, not embedded-postgres) all passed.
 
 ## Next step
 
