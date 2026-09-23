@@ -27,6 +27,8 @@ async function main() {
     user: DEV_USER,
     password: DEV_PASSWORD,
     persistent: true,
+    // UTF8, not the OS code page: WIN1252 clusters cannot store Urdu names (see testing.ts).
+    initdbFlags: ["--encoding=UTF8", "--locale=C"],
   });
 
   // initialise() re-runs initdb, which fails on a data directory that

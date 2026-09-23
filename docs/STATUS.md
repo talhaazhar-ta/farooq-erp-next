@@ -1,170 +1,202 @@
 # Status
 
-**Last updated:** 2026-09-23, by the S1 session (scaffold + DB + auth).
+**Last updated:** 2026-09-23, by the S2 session (importer + reconciliation).
 
 ## Current state
 
-S1 is done. The pnpm workspace, NestJS API, React web shell, shared permissions/schema package, Drizzle
-Postgres schema with a balance-enforcing trigger, embedded-postgres test harness, session/CSRF/role auth, an
-owner seed user, and CI all exist and are green. No business screens — sign-in + an empty authenticated shell
-is the whole UI surface, as scoped.
+S1 (scaffold, DB, auth) and S2 (importer + reconciliation) are done. `packages/import` loads a legacy
+`farooq-co-erp-backup` JSON into Postgres as a proper double-entry ledger and proves — with an independent
+re-implementation of the old algorithm — that every shop's and supplier's balance matches the old app **to the
+paisa**. On the real 2026-09-22 nightly backup: **409 customers and 35 suppliers reconciled, 0 differences**. No
+UI changes in S2 (that is S4).
 
 ### Repo layout (as built)
 
 ```
-apps/api        NestJS 11 + Fastify adapter, Drizzle ORM (postgres-js), Zod
-apps/web        React 19 + Vite, TanStack Router/Query/Table (code-based router, no file-based codegen),
-                 Tailwind v4 + hand-rolled components (no shadcn CLI run — see "Deviations")
-packages/shared  Permission/role constants + Zod schemas, built to dist/ (not raw-TS exports)
-packages/import  Empty stub (package.json + src/index.ts) — S2 fills it in
-docker-compose.yml   Postgres service for a future VPS — not used yet, not required for dev/test
-.github/workflows/ci.yml   install -> build -> typecheck -> lint -> test, Postgres service container
+apps/api         NestJS 11 + Fastify, auth/session/CSRF/roles (S1). Depends on @farooq/db.
+apps/web         React 19 + Vite shell (S1). No business screens yet.
+packages/shared  Permission/role constants + Zod schemas (built to dist/).
+packages/db      NEW in S2 (extracted from apps/api): Drizzle schema, migrations/, client, env, migrate, dev-db,
+                 and the embedded-postgres test harness (`@farooq/db/testing`). Built to dist/.
+packages/import  NEW in S2: classification, LegacyLedger, prepare (validate+map+journal), load, reconcile, CLI,
+                 fixtures/, test/.
 ```
 
 ## Verification
 
-Run from repo root (Node >=20, pnpm; no Docker needed):
+From the repo root: `pnpm install && pnpm build && pnpm typecheck && pnpm lint && pnpm test`.
 
-```
-pnpm install
-pnpm build       # -> all 4 packages build clean (shared, api, web, import)
-pnpm typecheck   # -> all 4 packages clean
-pnpm lint        # -> all 4 packages clean, 0 warnings (--max-warnings=0)
-pnpm test        # -> 3 test files, 15 tests, all passing (see below)
-```
+- `pnpm build` / `typecheck` / `lint`: all 6 packages clean, 0 warnings (`--max-warnings=0`). `packages/import`'s
+  typecheck also covers its tests and fixtures (`tsconfig.test.json`).
+- `pnpm test`: **101 tests, all passing** (was 15): `packages/shared` 4, `packages/import` **86**, `apps/api` 11 —
+  the original 15 unchanged. Also run with `EXTERNAL_TEST_DATABASE_URL` pointing at a separate Postgres database
+  (the CI path): identical, all green.
+- CI on the pushed commits: see "CI" under Known issues (filled in after the push).
 
-Actual output at the end of this session:
+### Proof 1 — the synthetic fixture (this is the one that validates the logic)
 
-- `pnpm build`: shared, import, api, web all `Done` (web: vite build, 406.92 kB / gzip 124.67 kB bundle).
-- `pnpm typecheck`: all 4 packages `Done`, no errors.
-- `pnpm lint`: all 4 packages `Done`, 0 errors/0 warnings.
-- `pnpm test`:
-  - `packages/shared`: `src/permissions.test.ts` — 4 tests passed (OWNER has every permission; INVENTORY/
-    warehouse role can't see profit or payments, ported from legacy `19-collection-rbac.js`; no non-owner role
-    has `PAYROLL_MANAGE`; every role's permissions are known `PERMISSIONS` entries).
-  - `apps/api`: 3 test files, 11 tests, **all passed**:
-    - `test/balance-trigger.test.ts` (2 tests) — a balanced `journal_entries`/`journal_lines` transaction
-      commits; **`fails at commit when an entry's lines don't sum debit == credit` — PASSED** (this is the
-      definition-of-done requirement: inserting an unbalanced entry inside a transaction fails at commit, with
-      Postgres raising `journal_entries <id> is unbalanced: debit <n> <> credit <n>`).
-    - `test/permission-guard.test.ts` (5 tests) — deny-by-default on an undecorated route; `@Public()` bypass;
-      INVENTORY denied `PAYMENT_CREATE` (ported from legacy RBAC); MANAGER allowed `PAYMENT_CREATE`;
-      `@SessionOnly()` bypass.
-    - `test/auth.e2e.test.ts` (4 tests) — bad password rejected (401); correct password sets session cookie +
-      `/auth/me` works; a mutating request without a matching CSRF header is rejected (401); **5 wrong
-      passwords lock the account** (`lockedUntil` set, further attempts 401 "Account locked" even with the
-      right password).
-  - `apps/web`, `packages/import`: no tests yet (`echo` placeholders) — intentional for S1's scope, not a gap.
-  - Duration: shared ~1s, api ~15-21s (embedded-postgres init + start dominates).
+`packages/import/fixtures/synthetic-backup.json` (fabricated names/ids/amounts, same envelope and field names as the
+real file, generated by `build-fixture.ts`; a test fails if the committed JSON drifts from the generator). It
+exercises every branch of the legacy ledger: opening balances with and without a date (one negative), invoices in every
+status, same-day documents, partial allocations, a REVERSED payment and a REVERSED adjustment, a customer refund, a
+supplier payment, customer returns (POSTED / CANCELLED / DRAFT) and supplier returns, DRAFT + CANCELLED purchases,
+account adjustments, milling jobs (NET / FEE_ONLY / CANCELLED), a no-activity party, a cash counter, Urdu names,
+a fake `users` store (credentials), and sequences.
 
-**Fresh migrate from empty, owner seed, trigger active** — verified manually against a persistent local
-embedded-postgres (`pnpm --filter @farooq/api db:dev`, port 54329):
-`pnpm db:migrate` then `pnpm db:seed` produced `role_permissions seeded: 37 rows across 4 non-owner roles, 21
-known permissions.` and `Owner user created: owner (id 47aab688-...)`. A follow-up query confirmed one `users`
-row (`owner`, role `OWNER`, active) and the `journal_lines_balance_check` trigger present in `pg_trigger`.
+Result of importing it: 6 customers + 5 suppliers, **0 differences**, 35 journal entries / 70 lines, Σ debit = Σ credit
+= 9,305,000 paisa, statements match, all counts match. **Every expected number in the tests was worked out by hand
+from the fixture before the code was run** (customers 1,900,000 / 100,000 / 470,000 / 15,000 / 450,000 / 0;
+suppliers 870,000 / 390,000 / -40,000 / 92,000 / 0), and the `LegacyLedger` unit tests assert them independently of the
+importer.
 
-**Browser sign-in check** — done, not skipped. The Claude-in-Chrome extension wasn't connected in this
-environment, so the `run` skill's Playwright fallback was used instead (see "Local-preview pattern" below):
-started `pnpm --filter @farooq/api dev` (:3000) and `pnpm --filter @farooq/web dev` (:5173) against the
-seeded dev DB, drove a headless Chromium to `http://localhost:5173`, filled in `owner` / the seeded owner
-password, submitted, and landed on the authenticated shell (sidebar nav, top bar with role chip "Owner ·
-Owner", dark-mode toggle, sign-out button, "Welcome" card). Screenshots confirmed real Tailwind styling, not
-an unstyled scaffold. Two console messages appeared: an expected 401 (the app's own `/auth/me` probe before
-sign-in, by design) and a 404 (the dev server has no `favicon.ico` — cosmetic, not a functional issue).
+I also injected three bugs into the posting logic on purpose (DRAFT invoices posting; DRAFT purchases skipped; FEE_ONLY
+milling not ignoring issued value) and confirmed the tests go red for each (11-12 failures each), then restored it.
 
-### Local-preview pattern (established this session, for future sessions to reuse)
+### Proof 2 — the real backup (real data, thin coverage)
 
-No project skill existed for running this app. Established pattern, documented in `CLAUDE.md` under "How to
-build / test locally":
-1. `pnpm --filter @farooq/api db:dev` — persistent local embedded-postgres (separate from the throwaway
-   per-test-run one), prints connection strings.
-2. Copy `apps/api/.env.example` -> `.env` (and `apps/web/.env.example` -> `.env` if needed), fill in.
-3. `db:migrate`, `db:seed`, then `apps/api dev` and `apps/web dev`.
-4. Browser check: `npx playwright install chromium` once, then a short throwaway script
-   (`chromium.launch()` -> `goto` -> fill `#username`/`#password` -> submit -> assert on shell text/screenshot)
-   run from a scratch location, never committed. On this machine the npm-installed Playwright's expected
-   browser revision didn't match the one already cached under `ms-playwright/`; passing `executablePath`
-   pointing at the cached `chromium-*/chrome-win64/chrome.exe` worked around it — future sessions should just
-   run `npx playwright install chromium` fresh and won't need that workaround.
+`data/business-20260922-210002-v505-6a81.json` (gitignored), run on a local embedded Postgres with
+`pnpm --filter @farooq/import run import <file>`, exit code 0:
 
-## Deviations from the S1 plan (and why)
+| | |
+|---|---|
+| customers reconciled | **409**, 0 differences |
+| suppliers reconciled | **35**, 0 differences |
+| receivables, old vs new | 92,390,000 paisa = 92,390,000 (net and owed>0 both) |
+| payables, old vs new | 604,000,000 paisa = 604,000,000 |
+| journal | 24 entries, 48 lines; trial balance 1,146,390,000 debit = 1,146,390,000 credit — BALANCED |
+| rows loaded = backup counts | regions 8, warehouses 3, products 139, customers 409, suppliers 35, invoices 12, purchases 5, payments 7, allocations 4, returns 0, adjustments 0, milling jobs 0, sequences 5 |
+| statements | 444 parties compared, 0 row mismatches |
+| parties with a nonzero balance | 7 customers, 4 suppliers (the rest are exactly 0) |
+| paper-book figures NOT posted | 409 customers and 32 suppliers carry a nonzero `legacyTotalSales/Collection/BalanceSigned` |
 
-- **`packages/shared` builds to `dist/`, not raw TS exports.** Simpler and more robust than importing `.ts`
-  directly from `node_modules` across NestJS's tsc build and Vite's dependency pre-bundling in a pnpm
-  workspace. `dev` script (`tsc --watch`) added for local iteration.
-- **shadcn/ui CLI was not run.** Given "no business screens yet," the sign-in page and shell use hand-rolled
-  Tailwind v4 components (no Radix primitives needed yet — no dialogs/dropdowns/tables in this session's UI
-  surface). shadcn's CLI (and its registry fetch) can be introduced in the session that first needs a
-  Radix-backed component (dialog, combobox, data table) rather than scaffolding it unused now.
-- **TanStack Router is code-based, not file-based.** No route-tree codegen step; `src/router.tsx` defines two
-  routes directly. Simpler for two routes; revisit file-based routing if the route count grows enough to
-  matter.
-- **CSRF is a server-held synchronizer token, not a classic double-submit cookie.** Login returns `csrfToken`
-  in the response body (never in a JS-readable cookie); the client holds it in memory and replays it via an
-  `x-csrf-token` header on mutating requests, checked against the session row in Postgres. Reload re-hydrates
-  it via a new `GET /auth/csrf` endpoint (`@SessionOnly()`, safe method, needs no CSRF header itself).
-- **Login lockout: kept old behaviour, added a new layer rather than changing it.** Old app: 5 wrong
-  passwords locks the *account* for 15 minutes, from any IP — a known, deliberately-not-fixed flaw, since
-  `owner` is a guessable username and a stranger can lock the real owner out. Ported that exactly
-  (`LOGIN_MAX_ATTEMPTS=5`, `LOGIN_LOCKOUT_MS=15min`, `users.failed_attempts`/`locked_until`). Added a
-  **per-IP** throttle on `POST /auth/login` (20 attempts / 15 min, in-memory `LoginRateLimitGuard`) as the
-  improvement the plan asked for — chosen over *replacing* per-account lockout with per-IP-only, because
-  per-IP-only doesn't fix the guessable-username flaw either (an attacker with many IPs still locks the
-  account) and would be a strictly different trade-off, not a strict improvement. Documented so a future
-  session can revisit if the owner wants a different trade-off (e.g. CAPTCHA after N failures instead of a
-  hard lock).
-- **Session lifetime matches the old app's owner-requested behaviour, not "fixed."** 12h absolute cap
-  (`SESSION_ABSOLUTE_TTL_MS`), **no idle timeout** — `last_seen_at` is updated on every request but never
-  checked. This was a deliberate owner request in the old app (`idle_ttl_min = 0`); not contradicted here.
-- **Receipt/document numbering (`sequences` table) is gap-meaningful, not a Postgres `SEQUENCE`.** Checked the
-  old app's `FDB.nextNumber` (`erp-upgrade/01-db.js`): it increments a per-kind-per-year counter and the
-  number is consumed even if the parent record then fails to save, so gaps in a printed number mean "an
-  attempt happened," which the old app treats as acceptable/expected. Matched exactly: `sequences(kind, year,
-  n)`, callers must increment under `SELECT ... FOR UPDATE` in the same transaction as the record being
-  numbered. No caller exists yet (S1 has no invoice/purchase creation) — the table exists, the locking
-  contract is documented as a code comment in `apps/api/src/db/schema.ts`, first real caller is S3/S4.
-  Not yet covered by a test (nothing calls it yet); add one when the first caller lands.
-- **`role` and other enum-shaped columns (`status`, `type`, `party_type`, `kind`) are plain `text`, not
-  Postgres enums or CHECK constraints.** Avoids a second, DB-level copy of the role/permission list that could
-  drift from `packages/shared`. Validated at the application boundary (Zod) instead. Noted as an intentional
-  gap — a `CHECK` constraint mirroring the Zod enum would be a reasonable S2+ hardening if this bites us.
-- **Money columns are Postgres `bigint`, JS `number` (not `bigint`) at the app layer.** CLAUDE.md rule #5 says
-  "integer paisa (bigint), matching the old app's `amountP`" — the old app's `amountP` is itself a plain JS
-  number of paisa. Paisa amounts for this business are nowhere near `Number.MAX_SAFE_INTEGER` (9e15), so
-  Drizzle's `bigint({mode:'number'})` was used rather than JS `BigInt`, which would need serialization
-  handling everywhere (JSON.stringify can't serialize BigInt) for no real safety benefit at this scale.
-- **`@Inject(Reflector)` / `@Inject(AuthService)` used explicitly on guards and the auth controller**, instead
-  of relying on TypeScript's emitted `design:paramtypes` metadata for implicit constructor-parameter DI.
-  Vitest's esbuild-based TS transform does not reliably emit `emitDecoratorMetadata` output the way `tsc`
-  does, so implicit-type injection silently resolved to `undefined` under the *test* runner (worked fine under
-  `tsc`-built production code, but broke DI in `Test.createTestingModule(...)`-based e2e tests). Making the
-  token explicit everywhere sidesteps the transform difference entirely — a real Nest+Vitest interaction, not
-  a workaround for one test.
-- **`fastify` is pinned to the exact version `@nestjs/platform-fastify` depends on (`5.11.3`)**, not a caret
-  range. Without pinning, pnpm's non-hoisted install resolved two different `fastify` versions in the tree
-  (ours vs. Nest's internal one), and `@fastify/cookie`'s `FastifyInstance` type didn't structurally match
-  Nest's, breaking `tsc` builds. Pin + re-dedupe fixed it; revisit the pin when bumping `@nestjs/platform-fastify`.
+Cross-checked with a third, deliberately naive method (plain sums straight from the JSON): receivables
+152,390,000 invoices - IN payments + refunds = 92,390,000 and payables 719,000,000 purchases - supplier payments =
+604,000,000 — both match. Also confirmed in the database: every `legacy_doc` is a real jsonb object, `shop_name` equals
+`legacy_doc->>'sh'` for all 409, the Urdu name survived, no credentials anywhere, no `users` rows created.
 
-## Known issues
+**What this does and does not prove.** The real backup has 12 invoices, 7 payments and **zero** returns, adjustments,
+milling jobs, opening balances and reversed payments, so it would pass even if those branches were wrong. They are
+proven only by the fixture (hand-computed). A newer nightly with returns/openings in it would be a stronger check —
+re-run the same command on it.
 
-- No component/e2e tests for `apps/web` yet (placeholder `test` script). Acceptable for S1 (no business logic
-  in the UI yet beyond auth wiring, which is exercised indirectly by the manual browser check); should not
-  stay a placeholder once real screens land in S2+.
-- `packages/import` is an empty stub — by design, S2's job.
-- The web bundle (406.92 kB / 124.67 kB gzip) is unsplit (single chunk) — fine at this size; revisit route-
-  based code-splitting once there are enough routes for it to matter.
-- First CI push (`3a88a5a`) failed: `pnpm-workspace.yaml`'s `allowBuilds` only listed
-  `@embedded-postgres/windows-x64` (the variant this Windows dev machine resolves), so CI's Linux runner hit
-  `ERR_PNPM_IGNORED_BUILDS` on `@embedded-postgres/linux-x64` before install could finish. Fixed in `0a2e484`
-  by listing all `@embedded-postgres/*` platform packages. **CI is now green on the pushed commit**:
-  [run 35849257085](https://github.com/talhaazhar-ta/farooq-erp-next/actions/runs/35849257085) — install,
-  build, typecheck, lint, and test (against the real Postgres service container via
-  `EXTERNAL_TEST_DATABASE_URL`, not embedded-postgres) all passed.
+## What S2 built
 
-## Next step
+- **`packages/db`** (§0 of the plan, done in full — not the fallback): mechanical move of schema/migrations/client/
+  migrate/dev-db/test harness; the original 15 tests were untouched and stayed green. Commit `e665f16`.
+- **Migration `0002_s2_ledger_import`** (S1's migrations untouched): `payments`, `payment_allocations` (CHECK: exactly
+  one of invoice/purchase), `account_adjustments`, `milling_jobs`; new columns on customers/suppliers (opening balance
+  paisa + date, `is_cash_counter`, `legacy_code`), invoices/purchases/returns (numbers indexed, `treatment`,
+  `refund_payment_id`), `journal_entries.source_type/source_id` with a **unique index on (source_type, source_id)**, and
+  `legacy_doc jsonb` (the untouched legacy document). Payments carry CHECKs on direction / party_type / status.
+  **Control accounts are seeded by the migration** (hand-appended INSERT ... ON CONFLICT DO NOTHING): `CASH`,
+  `RECEIVABLES`, `PAYABLES`, `SALES`, `SALES_RETURNS`, `PURCHASES`, `PURCHASE_RETURNS`, `OPENING_EQUITY`, and three
+  provisional ones `ACCOUNT_ADJUSTMENTS`, `MILLING_CLEARING`, `MILLING_FEES`. Parties live on journal **lines**
+  (`party_type`/`party_id`) — a party's balance is the sum of its lines on RECEIVABLES / PAYABLES.
+- **`classification.ts`**: every backup store is `imported` / `deferred` / `ignored`, every field of an imported store is
+  `mapped` / `docOnly` / `ignored`, each with a reason. An unknown store or field aborts the import naming it.
+- **`legacy-ledger.ts`**: independent literal port of the *effective* legacy ledger (imports nothing from the
+  importer/DB), including the quirks. **`prepare.ts`**: pure validate → map → journal (any error leaves the DB
+  untouched). **`load.ts`**: local-host guard, one transaction, wipe, load, audit row. **`reconcile.ts`**: the report.
+  **`cli.ts`**: `pnpm --filter @farooq/import run import <backup.json>`.
+- Posting table as implemented: see the doc comment on `prepareImport` in `prepare.ts`.
 
-Start **S2: importer + reconciliation** (`docs/sessions/S2.md` — not yet written; per `docs/ROADMAP.md` this
-is the next session in M1). Bring this file's contents back to the planning-hub session first so S2's plan can
-be written with accurate context of what S1 actually built (schema shape, auth patterns, the local-preview
-pattern) — in particular the importer will need to map legacy IDs onto the `legacy_id` columns already present
-on `users`, `customers`, `suppliers`, `regions`, `products`, `warehouses`, `invoices`, `purchases`, `returns`.
+## Deviations from the S2 plan (and why)
+
+1. **The effective ledger is bigger than `02-services.js` lines 1742-1824.** Two later patch modules wrap it:
+   `16-khata.js` wraps `Ledger.customer` (adds `accountAdjustments`; re-sorts with the OPENING row **always first,
+   whatever its date**) and `32-milling.js` wraps `Ledger.supplier` (adds three rows per non-cancelled milling job:
+   issued as a debit, received as a credit, fee as a credit; `FEE_ONLY` jobs post the fee only even when issued/
+   received values are nonzero). `24-client-changes.js` wraps both but only decorates descriptions. The plan's own rule
+   ("if one of the deferred stores feeds the Ledger, it moves to imported") applied: **`accountAdjustments` and
+   `millingJobs` moved to imported** (headers only; `millingJobItems`/`millingArrivals` stay deferred). Both are empty in
+   the real backup, so the fixture is what covers them. Where the plan's posting table and the code disagreed, the
+   code won: the table's other rows all matched.
+2. **Two return accounts, not one `RETURNS`**: `SALES_RETURNS` (contra-income) and `PURCHASE_RETURNS` (contra-expense).
+   Netting sales returns against purchase returns in one account would be meaningless; reconciliation is unaffected.
+3. **`legacy_doc` on regions, warehouses and products too** (plan listed six tables) so "nothing silently lost" holds
+   for every imported store.
+4. **Command is `pnpm --filter @farooq/import run import <file>`**, not `... import <file>` — pnpm has a built-in
+   `import` command that swallows the bare form. Documented in CLAUDE.md.
+5. **Statement check** = per party, the *multiset* of rows `(date, kind, ref, signed amount)` must equal the legacy
+   statement's, plus the closing balance. **Same-day row order is reported as informational, not failing** (fixture: 2
+   parties; real backup: 1 party). Reason: the legacy ledger's rows for supplier payments, customer refunds, returns
+   and opening balances carry **no `createdAt`**, so they sort *before* everything else on the same day, whereas the
+   journal keeps each document's true `created_at`. I kept `created_at` truthful rather than faking it. **Statement
+   order rule for the new ledger, for S4:** order by business date, then `journal_entries.created_at`, then entry id;
+   for **customers the OPENING row comes first regardless of its date**; entries of REVERSED payments/adjustments
+   (original + reversal) are omitted from statements. S4 must decide whether to keep true-created_at order or mimic
+   the legacy same-day quirk.
+6. **REVERSED payments/adjustments post the original and a reversing entry dated the same as the original**, so the pair
+   cancels at *every* date (the legacy ledger just skips them, and a later-dated reversal would make as-of-date
+   balances differ from legacy in between). Reversal `created_at` = the legacy `reversedAt`. S3's `reverse` is free to
+   date its reversals differently for new activity; the statement rule above must then be revisited.
+7. **A milling job's three journal entries get `created_at` +0/+1/+2 ms** (legacy orders them with `#1/#2/#3` suffixes on
+   `createdAt`), so a statement lists issue → received → fee deterministically.
+8. **`returns.refund_payment_id`** is resolved at import the way the legacy `editAmountCheck` does (payment
+   `reference == returnNumber` AND note starting "Refund against return "); a REFUND return with no unique match
+   gets a warning, not an abort. No such row exists in the real data — the fixture covers it.
+9. **Row ids are deterministic** (UUIDv5 of `<store>:<legacy id>`), which makes a re-import reproduce the same ids
+   (tested) and lets references be wired in memory.
+10. **Stricter than the plan in three places**: negative money aborts (openings are the only signed field); a payment
+    `IN` from a `SUPPLIER` aborts (the legacy customer and supplier filters disagree on it); `customers.lim` is kept in
+    `legacy_doc` only and `credit_limit_p` stays 0 (null in every real row, unit unverified — M2's call).
+11. **`pnpm test` now runs packages one at a time** (`--workspace-concurrency=1`) — `apps/api` and `packages/import` share
+    the test database and port, and the importer TRUNCATEs business tables.
+
+## Findings worth knowing
+
+- **Windows embedded-postgres clusters were WIN1252, not UTF8** (initdb picks the OS code page) — the first Urdu
+  customer name failed to insert (`character with byte sequence 0xd8 0xa8 ... has no equivalent in encoding "WIN1252"`).
+  Fixed in `@farooq/db` (`initdbFlags: ["--encoding=UTF8", "--locale=C"]`) for both the test harness and `db:dev`, and a
+  test asserts the encoding. Any Postgres cluster the app runs against must be UTF8.
+- The dev DB now lives at `packages/db/.embedded-postgres/dev` (was `apps/api/.embedded-postgres/dev`, now an orphaned,
+  gitignored S1 scratch cluster — safe to delete). `pnpm --filter @farooq/api db:dev|db:migrate` still work (they call
+  into `@farooq/db`); `pnpm --filter @farooq/db db:generate` regenerates migrations.
+- `users` is counted and then never read; credentials cannot reach the database or a `legacy_doc` (tested).
+- **The paper-book `legacy*` figures are not posted** (409 customers / 32 suppliers nonzero). The new balances therefore
+  equal what the *old ERP shows*, not the old paper books. Choosing a cutover date for them is still the owner's decision
+  (old repo's `CLAUDE.md` open item 1).
+
+## Known issues / not done
+
+- Real-backup coverage is thin (see "What this does and does not prove"); re-run on a richer nightly when one exists.
+  The importer loads the whole JSON in memory — fine at this size.
+- The old `auditLog` store (196 rows in the real file) is deferred, not imported; the new project starts its own
+  `audit_log` (one `IMPORT` row per import).
+- The three provisional accounts (`ACCOUNT_ADJUSTMENTS`, `MILLING_CLEARING`, `MILLING_FEES`) exist only so those
+  documents reconcile; their real accounting is for M8 / the owner.
+- Same-day statement order differs from legacy for a few parties (informational — see deviation 5).
+- `apps/web` still has no tests (placeholder script) — no UI work in S2.
+- **CI:** see below.
+
+## Carried over from S1 (still in force; S3 will meet these)
+
+- Money is `bigint` in Postgres and a plain JS `number` of paisa at the app layer (`bigint({mode:"number"})`).
+- Enum-shaped columns (`role`, `status`, `direction`, `party_type`, `kind`) are plain `text`, validated at the app
+  boundary; only `payments` and `payment_allocations` carry CHECK constraints (added in S2).
+- **Receipt/document numbering (`sequences`) is gap-meaningful**, not a Postgres SEQUENCE: increment per kind per year
+  under `SELECT ... FOR UPDATE` in the same transaction as the record; a number is consumed even if the record then
+  fails. The importer now loads the live counters (`INV, PUR, PV, RCV, REC` in the real file; also `CR, SR, ACC, MIL`
+  when they exist) — S3's next receipt number continues from them. No caller exists yet; add a test with the first one.
+- Login lockout = 5 wrong passwords locks the *account* for 15 min (old behaviour kept) plus a per-IP throttle; session
+  is a 12 h absolute cap with no idle timeout (deliberate owner request in the old app); CSRF is a server-held
+  synchronizer token replayed in `x-csrf-token`.
+- Guards/controllers use explicit `@Inject(...)` tokens (Vitest's esbuild doesn't emit decorator metadata); `fastify` is
+  pinned to the exact version `@nestjs/platform-fastify` depends on.
+- `packages/shared` and `packages/db` build to `dist/` (not raw-TS exports): **run `pnpm build` before `pnpm test`.**
+- Browser check pattern (Playwright fallback when the Chrome extension isn't connected) is in CLAUDE.md.
+
+## Next step — S3: Payments service + API (`docs/sessions/S3.md`)
+
+What S2 leaves for S3 (read `packages/db/src/schema.ts` and the `prepareImport` doc comment first):
+
+- `payments` / `payment_allocations` exist and are populated by the importer; S3 adds receive / pay / refund /
+  reverse / editAmount services on them. **Every posted document has exactly one journal entry, found by
+  `(source_type, source_id)`** — `PAYMENT` for the original, `PAYMENT_REVERSAL` for a reversal (same id). Use the same
+  account codes and line shapes the importer uses (`custLine`/`supLine` in `prepare.ts`): IN = DR CASH / CR
+  RECEIVABLES(customer); refund (OUT to a customer) = DR RECEIVABLES / CR CASH; supplier payment = DR PAYABLES / CR CASH.
+- `editAmount` refusals need `payment_allocations` (allocated) and `returns.refund_payment_id` (REFUND-treatment return
+  cash) — both are populated.
+- The importer is the regression harness: after building S3, re-running the importer + reconciliation on the fixture and
+  the real backup must still show 0 differences.
+- Decide (with S4) the statement order/reversal-date questions in deviations 5 and 6.

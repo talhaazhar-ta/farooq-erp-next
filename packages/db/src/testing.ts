@@ -18,6 +18,12 @@ export const TEST_ADMIN_USER = "postgres";
 export const TEST_ADMIN_PASSWORD = "postgres";
 export const TEST_APP_PASSWORD = "test-app-password";
 
+/**
+ * Force UTF8: on Windows initdb otherwise picks the OS code page (WIN1252), which cannot store Urdu shop names
+ * (found in S2 when the first Urdu customer name failed to insert). CI's Postgres image is UTF8 already.
+ */
+export const INITDB_FLAGS = ["--encoding=UTF8", "--locale=C"];
+
 export const TEST_ADMIN_URL =
   process.env.EXTERNAL_TEST_DATABASE_URL ??
   `postgresql://${TEST_ADMIN_USER}:${TEST_ADMIN_PASSWORD}@127.0.0.1:${TEST_PG_PORT}/${TEST_DB_NAME}`;
@@ -41,6 +47,7 @@ export async function startTestDatabase(): Promise<() => Promise<void>> {
       user: TEST_ADMIN_USER,
       password: TEST_ADMIN_PASSWORD,
       persistent: false,
+      initdbFlags: INITDB_FLAGS,
     });
     await pg.initialise();
     await pg.start();

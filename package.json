@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "pnpm --parallel -r run dev",
     "build": "pnpm -r run build",
-    "test": "pnpm -r run test",
+    "test": "pnpm -r --workspace-concurrency=1 run test",
     "typecheck": "pnpm -r run typecheck",
     "lint": "pnpm -r run lint",
     "db:migrate": "pnpm --filter @farooq/api run db:migrate",

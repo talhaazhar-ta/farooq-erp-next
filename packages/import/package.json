@@ -3,20 +3,28 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Legacy backup JSON -> Postgres importer + reconciliation report. Filled in by S2.",
+  "description": "Legacy backup JSON -> Postgres importer + reconciliation report (the \"100%\" safety net).",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint src --max-warnings=0",
-    "test": "echo \"no tests yet (S2)\" && exit 0"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "lint": "eslint src test fixtures --max-warnings=0",
+    "test": "vitest run",
+    "import": "tsx src/cli.ts",
+    "fixture": "tsx fixtures/build-fixture.ts"
   },
   "dependencies": {
-    "@farooq/shared": "workspace:*"
+    "@farooq/db": "workspace:*",
+    "dotenv": "^16.4.7",
+    "drizzle-orm": "^0.38.4",
+    "postgres": "^3.4.5"
   },
   "devDependencies": {
+    "@types/node": "^22.10.6",
+    "eslint": "^9.18.0",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.3",
-    "eslint": "^9.18.0"
+    "vitest": "^2.1.8"
   }
 }

@@ -15,9 +15,9 @@ for non-money modules, a person walked through it in headless Chrome and it matc
 |---|---|---|---|
 | 00a-preboot.js | Pre-boot shims/polyfills | not started | — |
 | 00-bridge.js | Base app / module loader bridge | not started | apps/web bootstrap |
-| 01-db.js | IndexedDB schema + migrations | not started | Drizzle schema (S1) |
+| 01-db.js | IndexedDB schema + migrations | ported (schema S1; sequences + backup load S2) | Drizzle schema (packages/db) + packages/import |
 | 01b-server-db.js | Server-side data backend, stale-window poll | not started | apps/api |
-| 02-services.js | Core business services (incl. Payments, Ledger) | not started | apps/api services (S3) |
+| 02-services.js | Core business services (incl. Payments, Ledger) | **Ledger ported (S2)**; Payments/Returns operations not started | Ledger: `packages/import` (`LegacyLedger` + journal posting); operations: apps/api services (S3) |
 | 03-docx.js | Document/Word export | not started | — |
 | 04-documents.js | Documents module | not started | — |
 | 05-ui-builder.js | UI builder helpers | not started | apps/web |
@@ -31,7 +31,7 @@ for non-money modules, a person walked through it in headless Chrome and it matc
 | 13-reports.js | Reports engine | not started | — |
 | 14-reports-ui.js | Reports UI | not started | — |
 | 15-export-flow.js | Export flow | not started | — |
-| 16-khata.js | Khata (ledger book) view | not started | — |
+| 16-khata.js | Khata (ledger book) view | ledger feed ported (account adjustments, OPENING-first order); screen not started | `packages/import`; statement screen S4 |
 | 17-profit.js | Profit/Profit.totals | not started | — |
 | 18-master-data.js | Areas/regions/master data (soft-delete pattern) | not started | — |
 | 19-collection-rbac.js | Roles & permissions | not started | packages/shared (S1) |
@@ -47,7 +47,7 @@ for non-money modules, a person walked through it in headless Chrome and it matc
 | 29-statement-of-account.js | Shop/supplier statement | not started | apps/web (S4) |
 | 30-payroll.js | Payroll | not started | M7 |
 | 31-auth.js | Sign-in, sessions, heartbeat, lockout | not started | apps/api auth (S1) |
-| 32-milling.js | Milling / stock at mills | not started | M8 |
+| 32-milling.js | Milling / stock at mills | ledger feed ported (job issue/received/fee rows); rest not started | `packages/import`; rest M8 |
 | 33-invoice-search.js | Invoice search (day-first dates) | not started | M2 |
 | 34-accounts.js | Accounts | not started | — |
 | 35-topbar.js | Top bar (user/db chips, sign-out) | not started | apps/web shell (S1) |
@@ -59,6 +59,16 @@ for non-money modules, a person walked through it in headless Chrome and it matc
 | 41-notifications.js | Notifications / bell panel | not started | — |
 | 42-layout.js | Long-list paging (fc-lim) | not started | apps/web (TanStack Table) |
 | 43-remember-page.js | Reload-stays-on-screen | not started | apps/web router state |
+
+Ledger rules ported in S2, each with a green test (`packages/import/test/`; hand-computed from `fixtures/build-fixture.ts`):
+
+- Invoice posts unless DRAFT/CANCELLED; **DRAFT purchases and DRAFT returns DO post** (only CANCELLED is skipped) — `import-fixture`, `legacy-ledger`.
+- REVERSED payment/adjustment: skipped by the legacy ledger; here original + reversal entry net to zero — `import-fixture`.
+- Customer refund (OUT to a shop) is a debit; refund + supplier-payment + return + opening rows carry no `createdAt` (sort first within a day) — `legacy-ledger`.
+- Customer statement puts the OPENING row first whatever its date (16-khata.js); supplier opening sorts by its date — `legacy-ledger`.
+- Milling `FEE_ONLY` jobs post the fee only, even with a nonzero issued value; CANCELLED jobs post nothing — `import-fixture`, `legacy-ledger`.
+- Negative opening balances (a credit) — `import-fixture`.
+- Paper-book `legacy*` figures are NOT posted (needs an owner cutover date) — `import-fixture`.
 
 Money-critical rules to port with a dedicated test each (from the old project's "learned the hard way" list —
 see `projectFarooqAndCoTraders/CLAUDE.md`), tracked here as they're picked up in S3/S4 and beyond:

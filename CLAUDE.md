@@ -33,11 +33,11 @@ farooq-erp-next/
   apps/api        NestJS 11, Fastify adapter, Drizzle ORM, Zod
   apps/web        React 19 + Vite, TanStack Router/Query/Table, shadcn/ui + Tailwind
   packages/shared Zod schemas + types + permission names shared by api & web
-  packages/import legacy backup JSON → Postgres importer + reconciliation report
+  packages/db     Drizzle schema, migrations, client, dev-DB launcher and the embedded-postgres test harness
+                  (`@farooq/db`, `@farooq/db/testing`) — shared by apps/api and packages/import
+  packages/import legacy backup JSON → Postgres importer, LegacyLedger, reconciliation report
   docker-compose.yml, .github/workflows/ci.yml, docs/
 ```
-
-None of `apps/`, `packages/` or `docker-compose.yml` exist yet as of this scaffold — S1 creates them.
 
 ## Hard rules
 
@@ -85,15 +85,19 @@ Requires Node >=20 and `pnpm` (`npm install -g pnpm` if missing — no Docker ne
 
 ```
 pnpm install
-pnpm build        # topological: packages/shared first, then apps/api + apps/web + packages/import
+pnpm build        # topological: packages/shared + packages/db first, then apps/api + apps/web + packages/import
 pnpm typecheck
 pnpm lint
-pnpm test          # apps/api spins up its own throwaway embedded-postgres per run (test/setup/global-setup.ts)
+pnpm test          # apps/api and packages/import each spin up a throwaway embedded-postgres per run (@farooq/db/testing)
 ```
 
-All four must be clean before pushing. `apps/api`'s tests use `embedded-postgres` (no system Postgres or
-Docker required); CI instead points them at a real Postgres service container via `EXTERNAL_TEST_DATABASE_URL`
-(see `.github/workflows/ci.yml`) — both paths run the same migrations and the same tests.
+All four must be clean before pushing. Run `pnpm build` before `pnpm test` — the packages import each other's
+built `dist/`. The tests use `embedded-postgres` (no system Postgres or Docker required); CI instead points them at
+a real Postgres service container via `EXTERNAL_TEST_DATABASE_URL` (see `.github/workflows/ci.yml`) — both paths run
+the same migrations and the same tests. `pnpm test` runs the workspace **one package at a time**
+(`--workspace-concurrency=1`) on purpose: the importer's tests TRUNCATE the business tables and both suites share one
+test database/port. Test Postgres clusters are created with `--encoding=UTF8` (Windows' default WIN1252 cannot store
+Urdu shop names) — keep it that way for any new cluster.
 
 **Running the app locally** (manual/browser checks, not CI):
 
@@ -108,6 +112,21 @@ pnpm --filter @farooq/web dev             # Vite on :5173
 
 `apps/web/.env.example` has `VITE_API_URL` (defaults to `http://localhost:3000`).
 
+**Importing a legacy backup + reconciliation** (S2; local Postgres only — the importer refuses any non-local host):
+
+```
+# with the dev DB from above running and migrated:
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54329/farooq_erp pnpm --filter @farooq/import run import ../../data/<backup>.json
+```
+
+(PowerShell: `$env:DATABASE_URL="..."; pnpm ...`.) Use `run import` — a bare `pnpm import` is pnpm's own built-in command. The importer wipes the business + ledger
+tables (never `users`/`sessions`/`role_permissions`/`audit_log`/`accounts`), loads the backup in one transaction,
+prints the reconciliation report and writes `data/reconciliation-<timestamp>.json` (gitignored). **Exit code is
+non-zero if any shop/supplier balance, the trial balance, a row count or a statement differs.** `DATABASE_URL` is the
+admin connection (TRUNCATE needs it). An unknown store or field in the backup aborts the import naming it — classify it
+in `packages/import/src/classification.ts`. `pnpm --filter @farooq/import fixture` regenerates the committed synthetic
+fixture (a test checks it hasn't drifted).
+
 **Browser smoke-check pattern** (no Claude-in-Chrome extension available in this environment; established in
 S1 for future sessions to reuse): `npx playwright install chromium` once, then drive the dev server with a
 short Playwright script (`chromium.launch()` → `page.goto()` → fill `#username`/`#password` → submit → assert
@@ -117,7 +136,7 @@ script used.
 ## Roadmap
 
 See `docs/ROADMAP.md` for the full milestone list. Current milestone: **M1 — Foundation + Payments**
-(S1 scaffold+DB+auth → S2 importer+reconciliation → S3 Payments service+API → S4 Payments UI+statements).
+(S1 scaffold+DB+auth ✓ → S2 importer+reconciliation ✓ → S3 Payments service+API → S4 Payments UI+statements).
 
 ## Where to look for more detail
 
