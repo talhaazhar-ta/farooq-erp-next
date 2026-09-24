@@ -33,7 +33,7 @@ export function normalize(s: unknown): string {
 }
 
 /* ── 33-invoice-search.js helpers ───────────────────────────────────── */
-const SEP = "\u0001";
+export const SEP = "\u0001";
 const MON3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
 const MONTH_RE = "jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?";
@@ -47,7 +47,7 @@ const labelDate = (iso: string) => {
 };
 
 const norm = normalize;
-function joinN(parts: unknown[]): string {
+export function joinN(parts: unknown[]): string {
   const out: string[] = [];
   parts.forEach((p) => {
     const n = norm(p);
@@ -55,9 +55,9 @@ function joinN(parts: unknown[]): string {
   });
   return out.join(SEP);
 }
-const compact = (s: unknown) => norm(s).replace(/ /g, "");
+export const compact = (s: unknown) => norm(s).replace(/ /g, "");
 
-function hasTerm(hays: string[], t: string): boolean {
+export function hasTerm(hays: string[], t: string): boolean {
   const t2 = t.indexOf(" ") > -1 ? t.replace(/ /g, "") : "";
   for (let i = 0; i < hays.length; i++) {
     if (hays[i]!.indexOf(t) > -1 || (t2 && hays[i]!.indexOf(t2) > -1)) return true;
@@ -111,7 +111,7 @@ export function parse(raw: unknown): { terms: string[]; dates: any[] } {
   return { terms, dates };
 }
 
-function dateText(iso: string): string {
+export function dateText(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
   if (!m) return "";
   const mo = +m[2]!, d = +m[3]!;

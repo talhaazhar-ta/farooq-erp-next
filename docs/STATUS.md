@@ -1,6 +1,96 @@
 # Status
 
-**Last updated:** 2026-09-24, by the **S7 session** (M2 part 2: the Invoices service + API). Milestone 1 is complete; **M2 (Invoices) is under way: S6 and S7 done, next S8.**
+**Last updated:** 2026-09-24, by the **S8 session** (M2 part 3: invoice search, print model, profit, statement detail — server + shared). Milestone 1 is complete; **M2 (Invoices) is under way: S6, S7 and S8 done, next S9 (the screens).**
+
+## S8 — what was done (M2 part 3: reading invoices — server side only, no screen changed)
+
+A person with the right role can now, through the HTTP API, list and search invoices exactly as the legacy list did (module 33), export the list as the legacy CSV, get the printed invoice as one document model that both layouts render
+(classic first — it is the live setting — and the standard one, from the same model), and see an invoice's profit if they hold `PROFIT_VIEW`. Statement rows and the Receive panel's outstanding invoices say what an invoice was for. The live ERP is untouched; nothing is deployed.
+
+**Step 0 (its own commit, `ac5fb37`)** — owner decision 2026-09-24: anyone holding `SALES_CREATE` may **discard a DRAFT** (`POST /invoices/:id/cancel` needs `SALES_CREATE` **or** `TRANSACTION_CORRECT` for a draft; a posted invoice still needs `TRANSACTION_CORRECT`;
+`actions.cancel` follows the same rule). INVENTORY is still refused; a draft has no stock, journal or money, so nothing else moved. The S7 tests that assumed the old rule were changed deliberately (`invoices-cancel` › who may — now three tests, `invoices-permissions` › a new draft-discard matrix, `invoices-reads-duplicate` › `actions.cancel` for SALES on a draft and on a posted invoice).
+
+### What exists now
+
+- **`GET /invoices`** (`apps/api/src/invoices/invoices.search.ts` + `invoices.list.ts`): words (AND, any order), typed dates (a date in the box is a filter, replaces from / to, and is echoed in `interpreted`), the seven scopes (`all number customer product amount payment notes`), filters (`status regionId warehouseId from to minP maxP`), the five sorts
+  (`newest oldest high low due`), paging, `interpreted` + `problems` (a From after To or a min above max is said out loud and the list is empty on purpose), the four **cards** (`kpis`: count / invoiced / received / outstanding over the whole filtered list, **drafts and cancelled left out; `drafts` counts every draft on file**), **counts per status** under every filter except the status one (`statusFacets`),
+  `onFile`, and per row `hits` ("why it matched": product lines with bags, "Paid by REC…"). Source is `invoices` + allocations — never the journal. `paidP` / `outstandingP` use the same definition as the detail and S3 (POSTED receipts; minus non-cancelled return credit).
+- **`GET /invoices/export.csv`** — the legacy columns and file name (`farooq-co-invoices-<business date>.csv`), every match (no paging), BOM, CRLF, all cells quoted, spreadsheet-injection guard, plain-rupee money; the same `csvCell` as the payments CSV.
+- **`GET /invoices/:id/print?template=classic|standard`** (`invoices.print.ts`) — ONE model (`invoicePrintSchema`) that both layouts render: company block, bill-to as printed, meta rows, lines with the legacy text ("5 Bags", "1 Bag", "—"), totals rows only when not zero, grand total / amount paid / balance on this invoice with the Urdu labels, amount in words (the shared `amountInWords`),
+  receipts applied (POSTED only), the previous balance (frozen) and the current outstanding (live), signatures, footer / terms / bank details from the settings, **and the classic block**: `InvNo` = `<salesDocPrefix>-` + the trailing digits to six places, the shop's **last six ledger rows up to and including this invoice** (from the S4 statement builder — not a second implementation), and the totals box
+  (Gross / Opening / Total / Cash / blank / Balance). A draft prints as "DRAFT" with no number (`hasNumber: false`), a cancelled invoice has `cancelled: true` for the stamp. **Built: both layouts** (classic first; the standard one costs nothing extra because the legacy classic layout is a block on the same model). `template` is the one asked for, else the business's `invoiceTemplate` setting, else `classic`.
+  All labels and Urdu strings are constants in `@farooq/shared` (`INVOICE_PRINT_LABELS`, `CLASSIC_LABELS`, `INVOICE_STATUS_LABELS`, …) and a test proves each occurs verbatim in the legacy source.
+- **Profit** — `GET /invoices/:id/profit` (`PROFIT_VIEW` only: 403 otherwise) and a `profit` block in `GET /invoices/:id` **present only for a role with `PROFIT_VIEW` — the key does not exist in the JSON for anyone else**. Definition in `packages/shared/src/profit.ts` (see "Profit definition" below).
+- **Statement rows** (additive, S5 untouched): an invoice row gains `detail` (what was typed, else "200 × Name pack @ PKR 2,700" / "N items — X total qty", else "Sale invoice <number>"), `qtyInfo {total, mixed}` and `qtyLabel` ("500", "500 (mixed units)", "—"); every other row has `detail: null`, `qtyInfo: null`, `qtyLabel: "—"`.
+  **`outstanding-invoices`** rows gain `lineSummary` (same wording).
+- **Migration `0007`** (`packages/db/migrations/0007_s8_invoice_search.sql`, generated by drizzle-kit plus a hand-written head): the six-argument `search_join`; generated stored columns `invoices.search_numbers / search_customer / search_amount / search_date / search_other` and `invoice_items.search_text`; and `journal_entries.created_at` now defaults to `clock_timestamp()` (see Findings — a real bug).
+- **`@farooq/shared`**: `line-summary.ts` (`lineSummary`, `qtyInfoOf`, `qtyLabelOf`, `invoiceRowDetail`, `cleanDescription`, `formatQtyMilli`), `profit.ts` (`profitOfLine`, `profitOfInvoice`), `schemas/invoice-list.ts`, `schemas/invoice-print.ts`.
+
+### Profit definition (owner-visible; adopted per planner decision 3, both numbers documented)
+
+- **Adopted:** goods margin net of the discount actually given. Line revenue = line total **minus its tax** (= gross − line discount); line cost = `round(cost snapshot × qty)`; invoice profit = Σ (revenue − cost) − invoice discount. Freight / loading / other charges and tax are not margin.
+  A line with an unknown cost (`cost_snapshot_p` null or 0) is `costKnown: false`, has **no** profit / margin / markup (never "as if it cost nothing"), stays out of the margin %, and the invoice discount is shared over the known lines in proportion to their revenue (all of it when every cost is known); `complete` / `unknownCostLines` say so. No line with a known cost → `profitP: null`.
+- **Legacy `Profit.invoice`:** grand total − Σ cost (unknown = 0). Kept only as `legacyProfitP` inside `profitOfInvoice` for tests; the API never sends it (test: no "legacy" in the response).
+- **Where they differ (hand-computed in `profit.test`, `invoices-profit`):** on a fully-costed invoice legacy − adopted is **exactly tax + freight + loading + other charges** (the planner's note said the legacy "ignores the invoice discount" — it does not: the grand total already has it subtracted); with an unknown-cost line the legacy counts those bags as free profit (example: 3,450,000 − 2,400,000 = 1,050,000 against an honest 514,286 on the known goods).
+- **Deviation from the plan's formula text:** the plan wrote "Σ (`lineTotal` − cost × qty) − invoice discount" but also "charges and tax are excluded"; `lineTotal` includes the line tax, so the literal formula would count tax. I followed the stated intent (tax excluded). One-line change in `profitOfLine` if the owner wants the other.
+
+### S8 verification
+
+`pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm e2e` all green locally, 0 lint warnings. **`pnpm test`: 954 tests** (844 before S8): `packages/shared` **151** (+17), `apps/web` 62, `packages/import` 224, `apps/api` **517** (+93). **`pnpm e2e`: 70 passed** (2.7 min; no screen changed, the S5 screens read the additive statement fields without a change). 222 of the import tests run in CI (2 real-backup tests skip without `data/`); in `apps/api` the real-backup datasets of `invoices-search-parity` and the whole `invoices-labels-verbatim` file (needs the old repo checked out next to this one) skip in CI.
+
+| new / changed file | tests | what it pins |
+|---|---|---|
+| `api/invoices-search-parity` | 21 | **the proof**: `GET /invoices` = the legacy algorithm (a literal JS port in `helpers/legacy-invoice-search.ts`, importing nothing from the code under test) — same ids, same order, same totals, same four cards, same status counts, same reading of the box, **same "why it matched" hints** — over three datasets, each imported through the real importer; the paging walk; row figures; **and each dataset reconciles (0 differences)** |
+| `api/invoices-list` | 18 | the fixture's 8 invoices worked out by hand: cards (6 live / 3,550,000 invoiced / 950,000 received / 2,460,000 owed / 1 draft), counts per status, every sort incl. `due` (drafts and cancelled last), every filter, the problems, a typed date replacing from / to, current-name vs printed-name search, **the receipt-number-only-in-its-scope rule** (`000003` finds the cancelled INV-…03 in Everything and the receipt-paid INV-…05 only in the payment scope), reversed receipts not searched, hints; plus invoices made through the API (cheque reference in Everything, receipt number only in its scope, reversed receipt stops being found, cancelled leaves the cards, a word the shop explains is not "why") |
+| `api/invoices-csv` | 6 | columns, file name (business date), BOM / CRLF / quoting, hand-computed rows for draft / cancelled / dispatched / fractional, filters and "every match", injection guard, quotes / commas / Urdu, 422s |
+| `api/invoices-print` | 16 | one hand-computed shop (I1 1,000,000; receipt 300,000; I2 347,000 with every charge and 47,000 paid at the sale; I3): identity, bill-to, meta, company / footer, columns and rows ("5 Bags", "1 Bag", "—"), **the totals rows one rule per row**, words, receipts (reversed not listed), ledger box (frozen vs live), classic serial / `SLV-` / prefix setting, "Nil" contact, **the last-six ledger rows up to this invoice**, the totals box, draft, cancelled, template choice, 404s, no cost/profit key |
+| `api/invoices-profit` | 8 | adopted numbers by hand (514,286 / 17.65 %, unknown-cost line flagged), tax and charges excluded, snapshot re-taken on edit only, `legacyProfitP` never sent, **403 for SALES / INVENTORY and the JSON keys absent — the detail, print, list and CSV header scanned for cost / profit / margin keys** |
+| `api/statements-invoice-detail` | 9 | `detail` / `qtyInfo` / `qtyLabel` for one line, fractional + paisa rate, typed description (cleaned), several lines, mixed units, imported invoice without lines, payment rows show none, cancelled invoice has no row; **invoice before its own sale receipt, six times over**; Receive panel `lineSummary` |
+| `api/invoices-s8-permissions` | 8 | list / CSV / print: OWNER, MANAGER, ACCOUNTANT, SALES yes, INVENTORY 403, no session 401; profit: OWNER, MANAGER, ACCOUNTANT; 422 for unknown / bad query fields; hostile search text |
+| `api/invoices-labels-verbatim` | 4 | every print / classic / status / scope / sort / problem label and the CSV header occurs character for character in the legacy source (skipped when the old repo is not next to this one) |
+| `api/invoices-cancel`, `invoices-permissions`, `invoices-reads-duplicate` | +2, +1, +1 assertion | step 0: draft discard both ways |
+| `shared/profit.test`, `shared/line-summary.test` | 10, 7 | the profit definition against the legacy figure (hand-computed), `Desc.fromLines` / `qtyOf` / `qtyLabel` / `cleanDesc`, `formatQtyMilli` = `toLocaleString` |
+
+**Search parity numbers** (`console.log`ged by the test): fixture — 86 queries, 74 with matches, 8 invoices; synthetic — **101 queries, 91 with matches, 300 invoices** (`helpers/synthetic-invoices.ts`, seeded, every status, Urdu / English names with letter variants, renamed shops, receipts incl. reversed, credit notes, two godowns, 752 lines, and its own stock so the importer's whole reconciliation runs on it);
+**real nightly backup (2026-09-23, v692) — 72 queries, 58 with matches, 17 invoices: same ids, same order, same totals, cards, facets, hints.**
+
+**Reconciliation (importer, unchanged by S8):** fixture — 6 shops / 5 suppliers, 0 balance, statement, invoice-total, stock, invoice ↔ stock differences; synthetic ~300 invoices — 40 shops / 7 suppliers, 0 everywhere; **real 2026-09-23 nightly — 409 / 35 parties, 0 balance differences, receivables 2,234,290,000 = 2,234,290,000, payables 554,000,000 / 604,000,000 (net / owed > 0) equal on both sides, trial balance 42 entries BALANCED, 444 statements 0 mismatches, 17 invoices / 18 lines / 910 bags 0 total mismatches, 15 stock rows / 48 movements 0 mismatches, 17 invoices vs 24 movements 0 mismatches.**
+2026-09-22 nightly: 409 / 35, 0 everywhere (unchanged from S6 / S7). On the real backup **0 of 17 invoices store a `paymentStatus` different from the one the receipts give** (the search derives it; the legacy stored it).
+
+**Mutation checks** (broke a rule, confirmed red in the named file, restored, re-ran green — 33 of 33 caught): receipt NUMBER searchable in Everything (parity ×3 + list ×2); reversed receipts searched (parity + list ×2); payment-status word dropped from "notes & other" (parity ×3 + list); shop's current text not searched (parity ×3 + list ×2); any word instead of every word (parity + list ×3); cards count drafts and cancelled (parity ×2 + list ×2);
+`due` sort puts drafts / cancelled first (parity ×2 + list); "why it matched" counts words the shop explains (parity ×2 **and**, added after the first pass showed only parity caught it, an API-level hand test); status counts honour the status filter (parity ×3 + list); profit: tax counted as revenue, invoice discount ignored, unknown cost counted as free (shared ×2-3, API ×2), discount not shared over known lines (API ×2);
+**profit key sent to every role** (JSON test); **profit endpoint open to any reader** (2 files); print: freight row always drawn, classic shows 5 rows not 6, account block ignores "up to this invoice", cancelled not flagged, opening = live balance not frozen; CSV draft cell empty; statement detail: mixed units not marked, typed description ignored; Receive panel loses its summary; the warehouse role may read invoices (5);
+**journal entries tie again** (`created_at` default back to `now()`: 2 files); **draft discard both ways** (step 0: the service lets SALES cancel a posted invoice — 4 red; the controller requires `TRANSACTION_CORRECT` for a draft — 3 red).
+(One check I did not trust at first: my own "labels are verbatim" test passed vacuously — a regexp built in a template literal lost its backslashes; caught by mutating a label and seeing it stay green, rewritten without regexps.)
+
+### S8 deviations from the plan (all deliberate; each has a test)
+
+1. **Statement rows keep `description` ("Sales invoice") and gain `detail`** instead of overwriting `description`: S4's `statements-proof` and S5's screens compare `description` against the ledger wording. The legacy display-time text lives in `detail`.
+2. **Profit revenue excludes the line tax** (see above). **`GET /invoices/:id/profit` exists as well as the `profit` block in the detail.**
+3. **Search columns:** the plan named `search_customer / amount / date / other` and `search_text`; I added **`search_numbers`** (the legacy number field also holds the order number, dispatch number and the invoice's own reference — S4's `search_number` only has the invoice number and its compact form, and its payment search must not change) and the six-argument `search_join`. **Category is not indexed for products** — the legacy indexes English name, name and brand only (parity is the goal). The payment-status word ("Unpaid" / "Partly paid" / "Paid") is derived from the receipts **at query time**, not stored — a stored column cannot follow receipts.
+4. **Presets are not on the server:** the list takes `from` / `to` (as `GET /payments` does); "this week" is the screen's arithmetic (S5's `lib/periods.ts`).
+5. **CSV money is plain rupees with paisa only when present ("1234.50")** — the same helper and the same S4 deviation as the payments CSV; the legacy wrote `String(number)` ("1234.5"). Rows end CRLF (the legacy "\n").
+6. **Sort ties:** the legacy left same-date-same-moment invoices to array order; here they fall to the number (byte order, drafts last when newest first), then the id. The datasets never tie further.
+7. **Receipts listed on a printed invoice, and "paid", are POSTED only** (the legacy deleted a reversed receipt's allocation rows; this database keeps them as history).
+8. **The statement CSV / print Qty column is not added** — those are screens (S5 builds the statement CSV in the browser); S9 adds the column with the model fields now available.
+9. **Both templates in one model** — the plan allowed "standard only if classic is done"; both are one model here (the classic block is additive), so both are done and `template` only picks which the business wants by default.
+
+### S8 findings worth knowing
+
+- **A real ordering bug, found by the print test:** `journal_entries.created_at` defaulted to `now()`, which in Postgres is the **transaction's** start time. An invoice and the receipt taken with it (one transaction) therefore had **identical** `created_at`, and a statement (and the classic print's account block) ordered them by a random entry id — a paid-at-sale receipt could appear *above* the invoice it pays. Balances were never wrong (closing is order-free), but running balances and "up to this invoice" were. Fixed in migration `0007` (`clock_timestamp()`), pinned by `statements-invoice-detail` › "the invoice row comes before its own sale receipt" (6 shops — 1.6 % chance of a false pass without the fix) and the print test.
+- **The committed fixture stores a stale `paymentStatus` ("UNPAID") on every invoice** (nothing maintains it by hand); the search derives it from the receipts, so the reference derives it too. On the real backup and on the synthetic dataset stored and derived agree in 100 % of invoices.
+- **A substring quirk is inherited on purpose:** "paid" matches "Unpaid" and "Partly paid" (the status words are searched as substrings). Documented in `invoices-list`; the parity test holds it.
+- **The legacy "why it matched" uses ANY of the remaining words** for a product line (`want.some`), so a two-word query can list a line that holds only one of them — ported as is.
+- **Tooling:** the shell / Python transport turns `\r`, `\n`, `\t`, `\u00XX` inside heredoc'd source into real characters (a CSV split on `"\r\n"` became a string with a raw line break; an NBSP regex became a raw NBSP that ESLint flagged). Use the Write / Edit tools for anything with a backslash; check `grep -P '[\x00-\x08\x0b\x0c\x0e-\x1f\xa0]'` on new files.
+- **`fileParallelism: false` + a shared database** means a test that asserts a global number (a card total, "drafts on file") must own the database — the list / CSV tests import the fixture first (wipes the business tables) and the API-created tests scope by the shop's unique name.
+
+### S8 not done / known issues
+
+- **No screen** (S9): nothing draws the list, the print, the profit or the new statement columns. Not seen by a person; no real staff use; the API has never been driven from a browser; **no sheet has been printed** (the model has been proven, the CSS and A4 layout are S9).
+- **Not proven at scale:** ~300 invoices and the real 17. The search scans the generated text columns with `strpos` (no index) and computes `paid` / `credit` with two lateral sums per invoice; comfortable to thousands, unmeasured beyond. `explain` on the real business's size (a few thousand a year) before cutover.
+- The classic block's "last six rows" uses the customer's whole ledger per print (one full ledger load) — fine today, cacheable later.
+- `costOf` / `avgCostP` maintenance, COGS (M4), returns (M5), dispatch (M4) unchanged; the profit uses the line's snapshot as the legacy did.
+- Owner questions still open (paper-book figures / cutover date; SALES pay-out; INVENTORY and `/company`). **New:** which profit definition the owner wants shown (adopted: goods margin, tax and charges excluded, unknown cost never counted as free) — see above.
 
 ## S7 — what was done (M2 part 2: the Invoices service + API)
 
@@ -64,7 +154,7 @@ returned invoice still editable (1); `paid` lowerable below the receipts (1); co
 4. **"The discount is larger than the line amount" is not printed for a line whose quantity is already invalid** (the legacy printed both for a negative quantity; only noise).
 5. **Change shop refuses a draft** (planner decision; the legacy UI refused, the legacy service did not) with the legacy UI's wording.
 6. **`costOf` step 3** (another godown's recorded average) picks the **lowest godown id**, the legacy took the first in its own iteration order; the legacy's product-wide carried-cost step only applies with no godown, and a line always has one.
-7. **Cancel of a DRAFT needs `TRANSACTION_CORRECT` too** (owner decision 2 taken literally): SALES cannot discard its own draft. **Owner question below.**
+7. **Cancel of a DRAFT needs `TRANSACTION_CORRECT` too** (owner decision 2 taken literally): SALES cannot discard its own draft. **Owner question below — ANSWERED 2026-09-24 and done in S8 step 0: `SALES_CREATE` holders may discard a draft.**
 8. **`request.revision` is required on every PUT** (a missing one is refused with its own message) and a NEW invoice starts at revision 1, as the legacy did (`clientRev + 1`).
 9. **The cancel refusal for a dispatched invoice** is NOT applied (owner decision 3 only blocks *edit* once a dispatch exists); cancel is blocked by returns and money only.
 10. `GET /invoices/:id` is readable by `SALES_CREATE | TRANSACTION_CORRECT | COLLECTION_VIEW | FINANCIAL_REPORT_VIEW` (INVENTORY: 403); `/products` and `/warehouses` need `MASTER_DATA_VIEW` (every role has it), cost figures only `PROFIT_VIEW`.
@@ -81,7 +171,7 @@ returned invoice still editable (1); `paid` lowerable below the receipts (1); co
 
 - No screen, no search / list / CSV / print / profit (S8, S9). `GET /invoices` does not exist yet.
 - Not seen by a person; no real staff use; the API has never been driven from a browser.
-- **Owner question (new):** SALES cannot cancel even its own draft (`TRANSACTION_CORRECT`, decision 2 taken literally) — so a salesperson has no way to discard a draft. Options: let `SALES_CREATE` holders cancel drafts only, or add a delete-draft action. Not changed; S9 should not offer "discard" to SALES until decided.
+- **(Resolved in S8 step 0 — SALES may now discard a draft.)** Was: SALES cannot cancel even its own draft (`TRANSACTION_CORRECT`, decision 2 taken literally) — so a salesperson has no way to discard a draft. Options: let `SALES_CREATE` holders cancel drafts only, or add a delete-draft action. Not changed; S9 should not offer "discard" to SALES until decided.
 - Owner questions from earlier milestones still open (see below).
 - `costOf` reads the movements each time (fine at today's scale — thousands of movements; an index on `(product_id, warehouse_id, bucket)` exists); the legacy capped its in-memory movement list at 8,000 recent rows, this reads all.
 - `stock_levels` rows are created (at zero) for every product × godown a posting touches, as the legacy `Inventory.row` did.
@@ -175,11 +265,11 @@ Nothing is deployed; the live ERP is untouched.
 ### Repo layout (as built)
 
 ```
-apps/api         NestJS 11 + Fastify (S1-S4). S5 change: CORS now exposes Content-Disposition (see Findings). S7: src/invoices/ (service, validate, rules, stock, queries, controller), payments/receipt-core.ts.
+apps/api         NestJS 11 + Fastify (S1-S4). S5 change: CORS now exposes Content-Disposition (see Findings). S7: src/invoices/ (service, validate, rules, stock, queries, controller), payments/receipt-core.ts. S8: invoices.search / list / csv / print.ts.
 apps/web         React 19 + Vite + TanStack Router / Query. src/lib (pure logic + tests), src/components, src/routes. Vitest + Testing Library (S5).
 apps/e2e         NEW (S5). Playwright: setup/ (throwaway Postgres → import → users → built API + built web), tests/*.spec.ts. Gitignored: .run/, e2e-artifacts/.
-packages/shared  Permissions, Zod schemas, business-date helpers (S7: addDays), fold / search-query / money; S6: invoice-totals (Calc port); S7: schemas/invoices.
-packages/db      Drizzle schema, migrations 0000-0006 (S6: invoice lines, stock; S7: request_keys), client, test harness; ledger.ts (S7: INVOICE_CANCEL) + stock.ts.
+packages/shared  Permissions, Zod schemas, business-date helpers (S7: addDays), fold / search-query / money; S6: invoice-totals (Calc port); S7: schemas/invoices; S8: schemas/invoice-list + invoice-print, profit.ts, line-summary.ts.
+packages/db      Drizzle schema, migrations 0000-0007 (S6: invoice lines, stock; S7: request_keys; S8: invoice search columns, journal created_at = clock_timestamp()), client, test harness; ledger.ts (S7: INVOICE_CANCEL) + stock.ts.
 packages/import  importer, LegacyLedger, reconciliation (S6: invoice totals + stock checks), fixtures.
 ```
 
@@ -315,6 +405,6 @@ Earlier — **green** on the S5 commit `45fc437`: [run 35952737035](https://gith
 
 ## Next step
 
-**S8 — invoice search, print model, profit, statement detail (server + shared)** (`docs/sessions/S8.md`, a draft written before S6 / S7 — **its "What S7 actually built" section at the top wins**, the hub should re-read this file and finalise it first).
-It builds on `GET /invoices/:id`, `invoices.search_number`, the `INVOICE_READ_PERMISSIONS` set and the snapshot / cost columns S7 fills. S9 (screens + e2e) follows; its plan got a "What S7 fixed about the write API" section.
-Still open from M1 and S7: a person walking the screens and printing a receipt, and the owner questions above (paper-book figures / cutover date; SALES pay-out; INVENTORY and `/company`; **can SALES discard its own draft?**).
+**S9 — invoice screens + browser tests** (`docs/sessions/S9.md`, corrected in S8 to the real API — its first two sections list every endpoint and shape the screens use; the hub may split it into S9a list / view / print / corrections and S9b the builder).
+The whole M2 read + write API now exists (S7 writes, S8 reads); nothing draws it yet. The screens must render `actions.*`, `interpreted`, `hits`, `statusFacets` and the print model as they come, never re-derive them; the print CSS (A4, fixed paper colours, Urdu, one page) is the part nobody has seen.
+Still open from M1 / M2: a person walking the screens and printing a receipt / invoice, and the owner questions above (paper-book figures / cutover date; SALES pay-out; INVENTORY and `/company`; which profit definition to show).

@@ -232,6 +232,10 @@ export function windowStatement(partyType: PartyType, ledger: FullLedger, w: Sta
       creditP: e.creditP,
       balanceP: balance,
       source: { type: e.sourceType, id: e.sourceId },
+      // (S8) filled in for invoice rows by the statement query, which reads the lines
+      detail: null,
+      qtyInfo: null,
+      qtyLabel: "—",
     });
   }
   const omitted = ledger.omittedReversedDates.filter((d) => (!w.from || d >= w.from) && (!w.to || d <= w.to)).length;

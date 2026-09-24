@@ -1,8 +1,12 @@
-import { and, asc, eq, sql } from "drizzle-orm";
-import { companyProfile, customers, invoices, paymentAllocations, payments, purchases, regions, suppliers, type Executor } from "@farooq/db";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { companyProfile, customers, invoiceItems, invoices, paymentAllocations, payments, purchases, regions, suppliers, type Executor } from "@farooq/db";
 import {
   amountInWords,
   COMPANY_DISPLAY_FIELDS,
+  invoiceRowDetail,
+  qtyInfoOf,
+  qtyLabelOf,
+  type StatementRow,
   RECEIPT_LABELS,
   type CompanyProfile,
   type Receipt,
@@ -63,7 +67,42 @@ export async function loadStatement(db: Executor, type: PartyType, id: string, q
   const party = await loadParty(db, type, id);
   if (!party) return null;
   const ledger = await loadFullLedger(db, type, id);
-  return { party, ...windowStatement(type, ledger, { from: q.from ?? null, to: q.to ?? null }) };
+  const windowed = windowStatement(type, ledger, { from: q.from ?? null, to: q.to ?? null });
+  return { party, ...windowed, rows: await withInvoiceDetail(db, windowed.rows) };
+}
+
+/**
+ * (S8, legacy 24-client-changes.js `decorate`) An invoice row says what the invoice was for and how many bags: what was typed on the
+ * invoice, else "200 × Name pack @ PKR 2,700" / "N items — X total qty", else "Sale invoice <number>", and its quantity (with
+ * "(mixed units)" when the lines are in different packages). ADDITIVE: `description` stays the ledger's wording and no amount or
+ * balance is touched; every other row keeps `detail: null`, `qtyInfo: null`, `qtyLabel: "—"`.
+ */
+async function withInvoiceDetail(db: Executor, rows: StatementRow[]): Promise<StatementRow[]> {
+  const ids = [...new Set(rows.filter((r) => r.kind === "INVOICE" && r.source.type === "INVOICE").map((r) => r.source.id))];
+  if (ids.length === 0) return rows;
+  const heads = await db.select({ id: invoices.id, description: invoices.description, number: invoices.invoiceNumber }).from(invoices).where(inArray(invoices.id, ids));
+  const lines = await db
+    .select({
+      invoiceId: invoiceItems.invoiceId,
+      descriptionEn: invoiceItems.descriptionEnSnapshot,
+      description: invoiceItems.descriptionSnapshot,
+      package: invoiceItems.packageSnapshot,
+      qtyMilli: invoiceItems.qtyMilli,
+      unitPriceP: invoiceItems.unitPriceP,
+    })
+    .from(invoiceItems)
+    .where(inArray(invoiceItems.invoiceId, ids))
+    .orderBy(asc(invoiceItems.invoiceId), asc(invoiceItems.sortOrder), asc(invoiceItems.id));
+  const head = new Map(heads.map((h) => [h.id, h]));
+  const byInvoice = new Map<string, typeof lines>();
+  for (const l of lines) byInvoice.set(l.invoiceId, [...(byInvoice.get(l.invoiceId) ?? []), l]);
+  return rows.map((r) => {
+    const h = r.kind === "INVOICE" && r.source.type === "INVOICE" ? head.get(r.source.id) : undefined;
+    if (!h) return r;
+    const ls = byInvoice.get(h.id) ?? [];
+    const qtyInfo = qtyInfoOf(ls);
+    return { ...r, detail: invoiceRowDetail(h.description, ls, h.number), qtyInfo, qtyLabel: qtyLabelOf(qtyInfo) };
+  });
 }
 
 /* ── receipt / voucher ──────────────────────────────────────────────── */

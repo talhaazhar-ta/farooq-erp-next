@@ -35,7 +35,7 @@ documents, stock value, average-cost maintenance and the COGS journal. Not used 
 |---|---|---|
 | **S6: invoice lines + stock quantities (data, import)** | migration (invoice lines, full header, `stock_movements`, `stock_levels`, product catalogue/prices), shared `invoiceTotals` (port of `Calc`), invoice posting builder in `ledger.ts`, importer + reconciliation of totals and stock | fixture + real backups: 0 balance / invoice-total / stock differences |
 | **S7: Invoices service + API ✓** | draft (many), post (number, stock, cost snapshot, payment at sale, journal), edit posted (net), cancel, duplicate, change shop, verbatim validation, permissions, concurrency, ledger bridge | rule tests + 403s + bridge green; reconciliation 0 |
-| **S8: search, print model, profit, statement detail (server)** | port of module 33 + CSV, printed invoice model (classic template first), per-invoice profit (`PROFIT_VIEW`), statement description/Qty from module 24 | search parity vs JS reference; print/profit tests; reconciliation 0 |
+| **S8: search, print model, profit, statement detail (server) ✓** | port of module 33 + CSV, printed invoice model (classic + standard from one model), per-invoice profit (`PROFIT_VIEW`), statement description/Qty from module 24; SALES may discard a draft | search parity vs JS reference on three datasets; print/profit tests; reconciliation 0 |
 | **S9: invoice screens + e2e** | list, builder, view/print, corrections; Playwright; screenshots reviewed (may split into S9a/S9b) | e2e green; "not seen by a person" list; M2 complete |
 
 ## After M2 (not yet broken into sessions)

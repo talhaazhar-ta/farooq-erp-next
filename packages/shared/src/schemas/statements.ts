@@ -86,6 +86,16 @@ export const statementRowSchema = z.object({
   /** Running balance after this row: customers debit − credit (positive = the shop owes us), suppliers credit − debit (positive = we owe them). */
   balanceP: z.number().int(),
   source: z.object({ type: z.string(), id: z.string().uuid() }),
+  /**
+   * (S8) An invoice row only: what the legacy statement drew in the Description column — what was typed on the invoice, else
+   * "200 × Zam Zam 20KG @ PKR 2,700" (one line) / "3 items — 500 total qty" (several), else "Sale invoice <number>".
+   * `description` stays the ledger's own wording ("Sales invoice"); every other row has `detail: null`.
+   */
+  detail: z.string().nullable().default(null),
+  /** (S8) An invoice row only: the bags behind it; `mixed` when the lines are in different packages (never summed into one figure). */
+  qtyInfo: z.object({ total: z.number(), mixed: z.boolean() }).nullable().default(null),
+  /** (S8) The Qty column: "500", "500 (mixed units)", or "—" for a row with no quantity. */
+  qtyLabel: z.string().default("—"),
 });
 export type StatementRow = z.infer<typeof statementRowSchema>;
 

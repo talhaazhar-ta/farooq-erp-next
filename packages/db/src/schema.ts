@@ -203,7 +203,9 @@ export const journalEntries = pgTable(
     sourceType: text("source_type"),
     sourceId: uuid("source_id"),
     createdBy: uuid("created_by").references(() => users.id),
-    createdAt: createdAt(),
+    /** clock_timestamp(), not now(): two entries posted in ONE transaction (an invoice and the receipt taken with it) must not tie,
+     *  or a statement could show the receipt before the invoice it pays. `now()` is the transaction's start time. */
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
   },
   (t) => [uniqueIndex("journal_entries_source_uq").on(t.sourceType, t.sourceId)],
 );
@@ -345,6 +347,27 @@ export const invoices = pgTable(
     regionSnapshot: text("region_snapshot"),
     marketSnapshot: text("market_snapshot"),
     warehouseSnapshot: text("warehouse_snapshot"),
+
+    /* ── S8: the folded text of every searchable field, as the legacy `InvoiceSearch.build()` indexed it. Generated (never
+       written by the app, never stale, no triggers), like S4's `search_number`. What cannot be a column of this row stays a
+       query: the shop's CURRENT text, the receipts applied, the product lines (`invoice_items.search_text`) and the payment
+       status word (it follows the receipts). ── */
+    /** Invoice number and its compact form, the order / dispatch numbers and the invoice's own reference. */
+    searchNumbers: text("search_numbers").generatedAlwaysAs(
+      sql`search_join(invoice_number, search_compact(invoice_number), order_number, dispatch_number, reference_no)`,
+    ),
+    /** The shop / owner / mobile (and its compact form) / region as printed on the invoice. */
+    searchCustomer: text("search_customer").generatedAlwaysAs(
+      sql`search_join(shop_name_snapshot, customer_name_snapshot, mobile_snapshot, search_compact(mobile_snapshot), region_snapshot)`,
+    ),
+    /** Every form the grand total can be typed in. */
+    searchAmount: text("search_amount").generatedAlwaysAs(sql`search_amount_text(total_p)`),
+    /** Every form the invoice date can be typed in. */
+    searchDate: text("search_date").generatedAlwaysAs(sql`search_date_text(date)`),
+    /** Notes, description, salesperson, payment method, warehouse and the status as the legacy words it ("Partly paid"). */
+    searchOther: text("search_other").generatedAlwaysAs(
+      sql`search_join(notes, description, salesperson, payment_method, warehouse_snapshot, CASE status WHEN 'DRAFT' THEN 'Draft' WHEN 'CONFIRMED' THEN 'Confirmed' WHEN 'DISPATCHED' THEN 'Dispatched' WHEN 'PARTIALLY_PAID' THEN 'Partly paid' WHEN 'PAID' THEN 'Paid' WHEN 'CANCELLED' THEN 'Cancelled' WHEN 'RETURNED' THEN 'Returned' WHEN 'PARTIALLY_RETURNED' THEN 'Partly returned' END)`,
+    ),
   },
   (t) => [
     index("invoices_invoice_number_idx").on(t.invoiceNumber),
@@ -398,6 +421,8 @@ export const invoiceItems = pgTable(
     batchNo: text("batch_no"),
     notes: text("notes"),
     legacyDoc: legacyDoc(),
+    /** (S8) The folded name of the line — English name, Urdu name and brand as printed — for the product search. Generated. */
+    searchText: text("search_text").generatedAlwaysAs(sql`fold_search(COALESCE(description_en_snapshot, '') || ' ' || COALESCE(description_snapshot, '') || ' ' || COALESCE(brand_snapshot, ''))`),
   },
   (t) => [
     index("invoice_items_invoice_idx").on(t.invoiceId, t.sortOrder),

@@ -1,6 +1,7 @@
 import { and, asc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import {
   customers,
+  invoiceItems,
   invoices,
   paymentAllocations,
   payments,
@@ -10,6 +11,7 @@ import {
   type Executor,
 } from "@farooq/db";
 import {
+  lineSummary,
   roleHasPermission,
   type ListPaymentsQuery,
   type PaymentKind,
@@ -288,13 +290,35 @@ const toDocument = (r: OutstandingRow): OutstandingDocument => ({
   paidP: r.paidP,
   creditP: r.creditP,
   outstandingP: r.outstandingP,
+  lineSummary: "",
 });
 
 /** The invoices a receipt can be allocated to: collectable, outstanding > 0, oldest first. Null = no such shop. */
 export async function outstandingInvoices(db: Executor, customerId: string): Promise<OutstandingDocument[] | null> {
   const [c] = await db.select({ id: customers.id }).from(customers).where(eq(customers.id, customerId)).limit(1);
   if (!c) return null;
-  return (await customerInvoiceOutstanding(db, customerId)).filter((r) => r.outstandingP > 0).map(toDocument);
+  const rows = (await customerInvoiceOutstanding(db, customerId)).filter((r) => r.outstandingP > 0);
+  return withLineSummaries(db, rows.map(toDocument));
+}
+
+/** (S8) What each invoice was for, in one line (the same wording as a statement row) — so the Receive panel can say "200 × Zam Zam 20KG @ PKR 2,700" beside a number. */
+async function withLineSummaries(db: Executor, docs: OutstandingDocument[]): Promise<OutstandingDocument[]> {
+  if (docs.length === 0) return docs;
+  const lines = await db
+    .select({
+      invoiceId: invoiceItems.invoiceId,
+      descriptionEn: invoiceItems.descriptionEnSnapshot,
+      description: invoiceItems.descriptionSnapshot,
+      package: invoiceItems.packageSnapshot,
+      qtyMilli: invoiceItems.qtyMilli,
+      unitPriceP: invoiceItems.unitPriceP,
+    })
+    .from(invoiceItems)
+    .where(inArray(invoiceItems.invoiceId, docs.map((d) => d.id)))
+    .orderBy(asc(invoiceItems.invoiceId), asc(invoiceItems.sortOrder), asc(invoiceItems.id));
+  const byInvoice = new Map<string, typeof lines>();
+  for (const l of lines) byInvoice.set(l.invoiceId, [...(byInvoice.get(l.invoiceId) ?? []), l]);
+  return docs.map((d) => ({ ...d, lineSummary: lineSummary(byInvoice.get(d.id) ?? []) }));
 }
 
 /** The purchases a supplier payment can be allocated to: not cancelled, outstanding > 0, oldest first. Null = no such supplier. */

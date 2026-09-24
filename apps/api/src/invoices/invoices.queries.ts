@@ -4,9 +4,11 @@ import {
   INVOICE_MESSAGES,
   milliToQty,
   paymentStatusOf,
+  profitOfInvoice,
   roleHasPermission,
   type InvoiceAction,
   type InvoiceDetail,
+  type InvoiceProfitView,
   type ProductPickItem,
   type ProductPickQuery,
   type Role,
@@ -36,6 +38,39 @@ async function creditOn(db: Executor, invoiceId: string): Promise<number> {
     SELECT COALESCE(SUM(total_p), 0)::text AS credit FROM returns
     WHERE invoice_id = ${invoiceId} AND kind = 'CUSTOMER' AND status <> 'CANCELLED'`);
   return Number([...rows][0]?.credit ?? 0);
+}
+
+type ItemRow = typeof invoiceItems.$inferSelect;
+
+/**
+ * Profit on one invoice from its lines' cost snapshots (definition and the legacy figure it replaces: `profitOfInvoice` in
+ * @farooq/shared). Callers must have checked PROFIT_VIEW: this is never built for anyone else, so the keys cannot leak.
+ * `legacyProfitP` is deliberately not passed on.
+ */
+export function profitView(inv: Pick<InvoiceRow, "invoiceDiscountP" | "totalP">, items: ItemRow[]): InvoiceProfitView {
+  const p = profitOfInvoice({
+    lines: items.map((it) => ({ qtyMilli: it.qtyMilli, lineTotalP: it.lineTotalP, taxP: it.taxP, costSnapshotP: it.costSnapshotP })),
+    invoiceDiscountP: inv.invoiceDiscountP,
+    grandTotalP: inv.totalP,
+  });
+  return {
+    lines: p.lines.map((l, i) => ({ lineId: items[i]!.id, revenueP: l.revenueP, costKnown: l.costKnown, costP: l.costP, profitP: l.profitP, marginPct: l.marginPct, markupPct: l.markupPct })),
+    revenueP: p.revenueP,
+    invoiceDiscountP: p.invoiceDiscountP,
+    costP: p.costP,
+    profitP: p.profitP,
+    marginPct: p.marginPct,
+    complete: p.complete,
+    unknownCostLines: p.unknownCostLines,
+  };
+}
+
+/** `GET /invoices/:id/profit`. Null when there is no such invoice. */
+export async function loadInvoiceProfit(db: Executor, id: string): Promise<InvoiceProfitView | null> {
+  const [inv] = await db.select().from(invoices).where(eq(invoices.id, id)).limit(1);
+  if (!inv) return null;
+  const items = await db.select().from(invoiceItems).where(eq(invoiceItems.invoiceId, id)).orderBy(asc(invoiceItems.sortOrder), asc(invoiceItems.id));
+  return profitView(inv, items);
 }
 
 /** The invoice with its lines, receipts, stock movements, and which actions `role` may take and why not. Null when there is no such invoice. */
@@ -161,6 +196,8 @@ export async function loadInvoiceDetail(db: Executor, id: string, role: Role): P
       note: m.note,
     })),
     actions: await actionsFor(db, inv, role),
+    // present ONLY with PROFIT_VIEW — the key does not exist for anyone else
+    ...(canSeeCost ? { profit: profitView(inv, items) } : {}),
   };
 }
 

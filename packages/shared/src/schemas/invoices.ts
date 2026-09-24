@@ -199,6 +199,29 @@ export const invoiceStockMovementSchema = z.object({
   note: z.string().nullable(),
 });
 
+/** Profit on one invoice (S8, `PROFIT_VIEW` only). See `profitOfInvoice` for the definition. */
+export const invoiceProfitSchema = z.object({
+  lines: z.array(
+    z.object({
+      lineId: z.string().uuid(),
+      revenueP: z.number().int(),
+      costKnown: z.boolean(),
+      costP: z.number().int().nullable(),
+      profitP: z.number().int().nullable(),
+      marginPct: z.number().nullable(),
+      markupPct: z.number().nullable(),
+    }),
+  ),
+  revenueP: z.number().int(),
+  invoiceDiscountP: z.number().int(),
+  costP: z.number().int(),
+  profitP: z.number().int().nullable(),
+  marginPct: z.number().nullable(),
+  complete: z.boolean(),
+  unknownCostLines: z.number().int(),
+});
+export type InvoiceProfitView = z.infer<typeof invoiceProfitSchema>;
+
 export const invoiceDetailSchema = z.object({
   id: z.string().uuid(),
   number: z.string().nullable(),
@@ -264,6 +287,8 @@ export const invoiceDetailSchema = z.object({
   stockMovements: z.array(invoiceStockMovementSchema),
   /** What this role may do now, and why not (the server's own wording — show it). */
   actions: z.object({ edit: action, cancel: action, changeShop: action, duplicate: action }),
+  /** (S8) The invoice's profit — present ONLY for a role with PROFIT_VIEW; the key is absent for everyone else. */
+  profit: invoiceProfitSchema.optional(),
 });
 export type InvoiceDetail = z.infer<typeof invoiceDetailSchema>;
 

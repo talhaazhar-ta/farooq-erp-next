@@ -298,6 +298,8 @@ export const outstandingDocumentSchema = z.object({
   /** Customer invoices only: credit of non-cancelled returns linked to the invoice. Always 0 for purchases. */
   creditP: z.number().int(),
   outstandingP: z.number().int(),
+  /** (S8) Invoices only: what the invoice was for, in one line — "200 × Zam Zam 20KG @ PKR 2,700" / "3 items — 500 total qty" (empty when it has no lines, and for purchases). */
+  lineSummary: z.string().default(""),
 });
 export type OutstandingDocument = z.infer<typeof outstandingDocumentSchema>;
 
