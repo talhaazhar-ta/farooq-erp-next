@@ -174,7 +174,14 @@ export function buildSyntheticBackup(opts: SyntheticOptions = {}): Backup {
 
   // stores the importer cross-checks against the parties above: none in this dataset
   for (const s of ["customerReturns", "supplierReturns", "accountAdjustments", "millingJobs", "invoiceItems", "inventory", "stockMovements", "operations"]) data[s] = [];
-  data.sequences = [{ k: "REC:2026", kind: "REC", year: 2026, n: counters.REC, updatedAt: "2026-09-20T09:00:00.000Z" }, { k: "PV:2026", kind: "PV", year: 2026, n: counters.PV, updatedAt: "2026-09-20T09:00:00.000Z" }];
+  // INV too: its 90 invoices are numbered INV-2026-000001…, and whatever test runs after an import of this backup must not be handed
+  // "INV-2026-000001" again by a counter that was never loaded (found in S8 — a CI run whose file order put invoice tests after this import)
+  const numbered = Math.max(0, ...data.invoices!.filter((i) => i.invoiceNumber).map((i) => Number(String(i.invoiceNumber).slice(-6))));
+  data.sequences = [
+    { k: "REC:2026", kind: "REC", year: 2026, n: counters.REC, updatedAt: "2026-09-20T09:00:00.000Z" },
+    { k: "PV:2026", kind: "PV", year: 2026, n: counters.PV, updatedAt: "2026-09-20T09:00:00.000Z" },
+    { k: "INV:2026", kind: "INV", year: 2026, n: numbered, updatedAt: "2026-09-20T09:00:00.000Z" },
+  ];
 
   const counts: Record<string, number> = {};
   for (const [store, docs] of Object.entries(data)) counts[store] = docs.length;

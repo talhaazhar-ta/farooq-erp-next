@@ -77,6 +77,10 @@ A person with the right role can now, through the HTTP API, list and search invo
 
 ### S8 findings worth knowing
 
+- **CI could not fail on a failing `apps/api` / `packages/import` / e2e-setup test — a hole since S2, found in S8 and fixed.** My first push of S8 showed 21 failed API tests in the CI log (`invoices-cancel`, `invoices-reads-duplicate`) and **the run still concluded "success"**: `embedded-postgres` registers an `async-exit-hook` the moment it is *imported*, and that hook's `beforeExit`
+  handler calls `process.exit(0)`, overriding vitest's exit code 1. `@farooq/db/testing` imported it at the top, so every process that loaded the harness — including CI's, which never uses embedded Postgres — exited 0 whatever failed. Proven: a one-line failing test exited 0 locally and in a CI-like run, and 1 in `packages/shared` (no harness).
+  **Fix (`packages/db/src/testing.ts`):** `embedded-postgres` is now imported lazily, only when no `EXTERNAL_TEST_DATABASE_URL` is set (so never in CI), and after the teardown stops the cluster the listeners it added are removed. Verified: failing test → exit 1, passing → 0, on both paths; `pnpm test` and `pnpm e2e` still green. Every earlier "CI green" entry in this file rested on a person reading the log, not on the exit code — nothing was found wrong (all tests did pass locally in those sessions), but the guarantee was missing until now.
+- **Which failure it hid — a real order dependence in the tests:** the S4 synthetic payments backup (`helpers/synthetic-payments.ts`, also the e2e dataset) imports 90 invoices numbered `INV-2026-000001…` but loaded **no `INV` counter**, so any invoice test that ran after `payments-search-parity` was handed `INV-2026-000001` again (unique violation → 500). CI's file order (no vitest duration cache) put them after it; local runs never did. The backup now loads an `INV` counter (`n` = the highest number); the suite passes with the cache removed and under two random file orders (`--sequence.shuffle.files --sequence.seed=3 / 11`), 517 / 517 each.
 - **A real ordering bug, found by the print test:** `journal_entries.created_at` defaulted to `now()`, which in Postgres is the **transaction's** start time. An invoice and the receipt taken with it (one transaction) therefore had **identical** `created_at`, and a statement (and the classic print's account block) ordered them by a random entry id — a paid-at-sale receipt could appear *above* the invoice it pays. Balances were never wrong (closing is order-free), but running balances and "up to this invoice" were. Fixed in migration `0007` (`clock_timestamp()`), pinned by `statements-invoice-detail` › "the invoice row comes before its own sale receipt" (6 shops — 1.6 % chance of a false pass without the fix) and the print test.
 - **The committed fixture stores a stale `paymentStatus` ("UNPAID") on every invoice** (nothing maintains it by hand); the search derives it from the receipts, so the reference derives it too. On the real backup and on the synthetic dataset stored and derived agree in 100 % of invoices.
 - **A substring quirk is inherited on purpose:** "paid" matches "Unpaid" and "Partly paid" (the status words are searched as substrings). Documented in `invoices-list`; the parity test holds it.
@@ -397,7 +401,9 @@ snapshots, search punctuation is a separator — see `docs/PARITY.md` "Search, s
 
 ## CI run
 
-**S7: green** on commit `fd7bafa`: [run 35976238407](https://github.com/talhaazhar-ta/farooq-erp-next/actions/runs/35976238407) — install, build, typecheck, lint, test (real Postgres service container; the 2 real-backup tests skip), Chromium, `pnpm e2e` (70) all passed.
+**S8: see the run recorded below the S8 push (the first S8 push is the run described in Findings — it only looked green).**
+
+Earlier — **S7: green** on commit `fd7bafa`: [run 35976238407](https://github.com/talhaazhar-ta/farooq-erp-next/actions/runs/35976238407) — install, build, typecheck, lint, test (real Postgres service container; the 2 real-backup tests skip), Chromium, `pnpm e2e` (70) all passed.
 
 Earlier — **S6: green** on commit `1e8364f`: [run 35961659523](https://github.com/talhaazhar-ta/farooq-erp-next/actions/runs/35961659523) — install, build, typecheck, lint, test (real Postgres service container; the 2 real-backup tests skip), Chromium, `pnpm e2e` (70) all passed.
 

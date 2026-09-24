@@ -1,4 +1,4 @@
-import EmbeddedPostgres from "embedded-postgres";
+import type EmbeddedPostgres from "embedded-postgres";
 import os from "node:os";
 import path from "node:path";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -35,13 +35,27 @@ export const TEST_APP_URL = (() => {
   return url.toString();
 })();
 
+/**
+ * `embedded-postgres` registers an `async-exit-hook` the moment it is IMPORTED, and that hook's `beforeExit` handler calls
+ * `process.exit(0)` (its `exit` handler even throws) — which silently turned a FAILING vitest run into exit code 0 (found in S8:
+ * CI stayed green with 21 failed API tests). So it is imported only when it is really used (never in CI, which has a service
+ * container), and once our teardown has stopped the cluster the listeners it added have nothing left to do: remove exactly
+ * those, so vitest's own exit code stands.
+ */
+const EXIT_EVENTS = ["exit", "beforeExit", "SIGHUP", "SIGINT", "SIGTERM", "SIGBREAK", "message"];
+const listenersNow = (): Map<string, Set<unknown>> => new Map(EXIT_EVENTS.map((e) => [e, new Set((process as NodeJS.EventEmitter).listeners(e))]));
+
 /** Starts (or attaches to) the test Postgres and migrates it. Returns a stop function. */
 export async function startTestDatabase(): Promise<() => Promise<void>> {
   let pg: EmbeddedPostgres | undefined;
   let dataDir: string | undefined;
+  let addedByEmbedded: (readonly [string, unknown])[] = [];
   if (!process.env.EXTERNAL_TEST_DATABASE_URL) {
+    const before = listenersNow();
+    const { default: EmbeddedPostgresClass } = await import("embedded-postgres");
+    addedByEmbedded = EXIT_EVENTS.flatMap((e) => (process as NodeJS.EventEmitter).listeners(e).filter((l) => !before.get(e)!.has(l)).map((l) => [e, l] as const));
     dataDir = mkdtempSync(path.join(os.tmpdir(), "farooq-erp-pg-test-"));
-    pg = new EmbeddedPostgres({
+    pg = new EmbeddedPostgresClass({
       databaseDir: dataDir,
       port: TEST_PG_PORT,
       user: TEST_ADMIN_USER,
@@ -57,5 +71,6 @@ export async function startTestDatabase(): Promise<() => Promise<void>> {
   return async () => {
     await pg?.stop();
     if (dataDir) rmSync(dataDir, { recursive: true, force: true });
+    for (const [event, listener] of addedByEmbedded) (process as NodeJS.EventEmitter).removeListener(event, listener as (...a: unknown[]) => void);
   };
 }

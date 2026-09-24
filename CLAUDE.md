@@ -93,7 +93,7 @@ pnpm test          # apps/api and packages/import each spin up a throwaway embed
 pnpm e2e           # S5: Playwright in Chromium — needs `pnpm build` first and Chromium installed once (below)
 ```
 
-All five must be clean before pushing. Run `pnpm build` before `pnpm test` — the packages import each other's
+All five must be clean before pushing. (Since S8 a failing `apps/api` / `packages/import` test really makes `pnpm test` exit non-zero — before, `embedded-postgres`'s exit hook forced exit code 0, so CI could not fail; keep `startTestDatabase`'s lazy import.) Run `pnpm build` before `pnpm test` — the packages import each other's
 built `dist/`. The tests use `embedded-postgres` (no system Postgres or Docker required); CI instead points them at
 a real Postgres service container via `EXTERNAL_TEST_DATABASE_URL` (see `.github/workflows/ci.yml`) — both paths run
 the same migrations and the same tests. `pnpm test` runs the workspace **one package at a time**
