@@ -6,12 +6,30 @@ nothing here deploys anywhere yet.
 
 ## Read this first, every session
 
-1. **Read `docs/STATUS.md`.** It says what is done, how it was verified, and what the next step is.
+1. **Read `docs/STATUS.md`.** It holds only the *current* state: where we are, the baseline, the rules still in force, open
+   questions, the next step. It is short on purpose (~150 lines). Full write-ups of earlier sessions are in `docs/history/`
+   (verbatim) — **grep them before re-deriving anything**; don't read them end to end unless your task touches that area.
 2. **Read the session plan you were given** (`docs/sessions/S<N>.md`). It is self-contained: goal, files, steps,
    definition of done, out of scope. Don't start work outside that scope — flag it in STATUS instead.
-3. When you finish: **update `docs/STATUS.md`** (what's done, real verification numbers, deviations, known
-   issues, next step), commit, push to `main`. That file is the only hand-off between sessions — don't assume
-   the next session remembers this conversation.
+3. When you finish: **move your own session's write-up to `docs/history/S<N>.md`** (what was built, real verification numbers,
+   deviations, findings, screenshots seen, mutation checks) and keep `docs/STATUS.md` to the header, "Baseline", "Rules in force"
+   (add only rules a future session must obey), "Open questions", "Not yet seen by a person" and "Next step". Commit, push to `main`,
+   and record the CI result. STATUS + history are the only hand-off between sessions — don't assume the next session remembers this conversation.
+
+## How to spend a session's effort (efficiency without lowering the bar)
+
+Verification is the point of this project (reconciliation, parity tests, mutation checks, real-browser tests have each caught real bugs:
+S4's search phrase gap, S5's stale-closure search bug, S8's CI that could not fail, S10's CORS that made every edit impossible). So none of it is
+skipped — it is done **once, at the right scope**:
+- **While developing:** run only what you touched (`pnpm --filter <pkg> test <file>`, a single Playwright spec) after each change. Don't re-run the whole
+  suite after every edit.
+- **Before the final commit:** run the full `pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm e2e` **once** and check the exit code; run it
+  again only after touching `packages/shared`, `packages/db` or `packages/import`, or after fixing a failure. Never skip this final full run.
+- **Mutation checks:** required for every *new* business rule (break the rule, confirm the named test file goes red, restore). Run **only that file** per
+  mutation, script the apply / restore, and cover the new rules — don't re-sweep rules from earlier sessions.
+- **Screenshots and print output:** look at them (open the files). At least every new screen once at desktop + phone, and every screen where a defect was found.
+- **Reading:** STATUS, your session plan, the legacy code the plan names, and the files you touch. Grep before you read a big file.
+- **CI:** after pushing, wait for the run and record its real conclusion (a run still "in progress" is not green).
 
 ## What this is
 
@@ -104,7 +122,7 @@ Urdu shop names) — keep it that way for any new cluster.
 **apps/api tests** (S3) also import `@farooq/import` (the ledger-bridge test imports the synthetic fixture through the real importer),
 so `pnpm build` must have run first; `pnpm --filter @farooq/api typecheck` covers `test/` too (`tsconfig.test.json`). Tests seed their own
 uniquely-named shops/suppliers and never truncate, except `payments-ledger-bridge`, which runs the importer (it wipes the business tables).
-Payment / search / statement / receipt endpoints, the Zod schemas the UI imports, and the permission model are listed in `docs/STATUS.md`.
+Payment / search / statement / receipt endpoints, the Zod schemas the UI imports, and the permission model are listed in `docs/history/S3.md` and `docs/history/S4.md` (endpoint tables); the controllers under `apps/api/src/*/` are the source of truth.
 The S4 parity / proof tests (`payments-search-parity`, `statements-proof`, `receipt`, `s4-reads`) **import a backup**, which wipes the business tables — every other test seeds its own uniquely named rows. The real-backup datasets in those tests run only when `data/business-20260922-210002-v505-6a81.json` exists (never in CI).
 
 **Invoice service tests (S7)** live in `apps/api/test/invoices-*.test.ts` (validate, post, edit, cancel, change-shop, reads/duplicate, cost, permissions, concurrency, and `invoices-ledger-bridge`, which imports the fixture, runs 11 scripted operations through the HTTP API, mirrors them on the legacy JSON and runs the real reconciliation). They seed uniquely named shops / products / godowns (`test/helpers/invoices.ts`) and never truncate, except the bridge, which runs the importer. The API is `apps/api/src/invoices/`; `PaymentsService.receive` and an invoice saved with money taken both call `writeReceipt` (`apps/api/src/payments/receipt-core.ts`). Migration `0006` adds `request_keys` (idempotency for invoice saves).
