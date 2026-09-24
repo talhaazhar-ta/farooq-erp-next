@@ -1,0 +1,534 @@
+/*
+ * The printed sales invoice — a port of the legacy paper CSS (04-documents.js `Paper.css` for the standard layout,
+ * 08-classic-invoice.js `CLASSIC_CSS` for the classic one). Paper colours are FIXED (a printed page is black on white
+ * whatever the app theme); no web fonts (system fonts only, with the Urdu fonts first when the machine has them).
+ * On screen the sheet is 210 mm wide inside a scroll box; in print it fills the A4 page set in index.css (12 mm margins).
+ */
+.fcdoc {
+  --doc-ink: #16161f;
+  --doc-mute: #63636f;
+  --doc-line: #d8d8e0;
+  --doc-accent: #5b21b6;
+  --doc-soft: #f3f0fc;
+  color-scheme: light;
+  background: #ffffff;
+  color: var(--doc-ink);
+  font-family: "Segoe UI", system-ui, Tahoma, "Noto Naskh Arabic", "Noto Sans Arabic", Arial, sans-serif;
+  font-size: 10.5px;
+  line-height: 1.35;
+  width: 210mm;
+  min-height: 296mm;
+  padding: 13mm 13mm 12mm;
+  margin: 0 auto;
+  box-sizing: border-box;
+  position: relative;
+  text-align: left;
+}
+.fcdoc * {
+  box-sizing: border-box;
+}
+.fcdoc table {
+  border-collapse: collapse;
+}
+.fcdoc .fc-ur {
+  font-family: "Noto Nastaliq Urdu", "Jameel Noori Nastaleeq", "Noto Naskh Arabic", "Segoe UI", Tahoma, serif;
+  line-height: 1.5;
+  font-size: 0.96em;
+}
+.fcdoc .fc-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+.fcdoc .fc-logo {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--doc-accent);
+  letter-spacing: -0.5px;
+  line-height: 1;
+}
+.fcdoc .fc-logo img {
+  max-height: 46px;
+  max-width: 150px;
+  display: block;
+  object-fit: contain;
+}
+.fcdoc .fc-name {
+  font-size: 15px;
+  font-weight: 800;
+  margin-top: 3px;
+  letter-spacing: -0.2px;
+}
+.fcdoc .fc-tag {
+  font-size: 9px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--doc-mute);
+  margin-top: 2px;
+}
+.fcdoc .fc-slogan {
+  color: var(--doc-accent);
+  margin-top: 1px;
+}
+.fcdoc .fc-contact {
+  text-align: right;
+  font-size: 9.5px;
+  color: var(--doc-mute);
+  line-height: 1.65;
+}
+.fcdoc .fc-title {
+  text-align: center;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 7px;
+  margin: 8px 0 6px;
+  padding-bottom: 5px;
+  border-bottom: 2px solid var(--doc-accent);
+}
+.fcdoc .fc-ribbon {
+  position: absolute;
+  top: 34mm;
+  right: 14mm;
+  transform: rotate(-14deg);
+  border: 3px solid #a32e2e;
+  color: #a32e2e;
+  font-weight: 800;
+  letter-spacing: 3px;
+  padding: 4px 14px;
+  font-size: 16px;
+  opacity: 0.5;
+  border-radius: 4px;
+  pointer-events: none;
+}
+.fcdoc .fc-parties {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 20px;
+  margin-top: 8px;
+}
+.fcdoc .fc-lbl {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--doc-accent);
+  margin-bottom: 5px;
+}
+.fcdoc .fc-shop {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+.fcdoc .fc-kv {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 1px;
+}
+.fcdoc .fc-kv span {
+  color: var(--doc-mute);
+  min-width: 78px;
+}
+.fcdoc .fc-meta {
+  width: 100%;
+}
+.fcdoc .fc-meta td {
+  padding: 2.5px 0;
+  vertical-align: top;
+}
+.fcdoc .fc-meta td:first-child {
+  color: var(--doc-mute);
+}
+.fcdoc .fc-meta td:last-child {
+  text-align: right;
+  font-weight: 600;
+}
+.fcdoc .fc-strip {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  border: 1px solid var(--doc-line);
+  border-radius: 5px;
+  margin-top: 8px;
+}
+.fcdoc .fc-strip > div {
+  padding: 6px 9px;
+  border-right: 1px solid var(--doc-line);
+}
+.fcdoc .fc-strip > div:last-child {
+  border-right: none;
+}
+.fcdoc .fc-strip b {
+  display: block;
+  font-size: 11.5px;
+  margin-top: 1px;
+}
+.fcdoc .fc-strip i {
+  font-style: normal;
+  font-size: 8px;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--doc-mute);
+}
+.fcdoc table.fc-items {
+  width: 100%;
+  margin-top: 8px;
+  font-size: 10.5px;
+}
+.fcdoc table.fc-items th {
+  background: var(--doc-soft);
+  text-align: left;
+  font-size: 8.5px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--doc-mute);
+  padding: 6px 5px;
+  border: 1px solid var(--doc-line);
+}
+.fcdoc table.fc-items td {
+  padding: 4px 7px;
+  border: 1px solid var(--doc-line);
+  vertical-align: middle;
+}
+.fcdoc table.fc-items tbody tr:nth-child(even) td {
+  background: #fafafc;
+}
+.fcdoc table.fc-items tfoot td {
+  background: #f1eefb;
+  font-weight: 700;
+  border: 1px solid var(--doc-line);
+}
+.fcdoc .r {
+  text-align: right;
+}
+.fcdoc .c {
+  text-align: center;
+}
+.fcdoc .fc-sub {
+  font-size: 9px;
+  color: var(--doc-mute);
+  display: block;
+}
+.fcdoc .fc-bottom {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 20px;
+  margin-top: 10px;
+}
+.fcdoc .fc-tot {
+  width: 100%;
+}
+.fcdoc .fc-tot td {
+  padding: 3px 8px;
+  border-bottom: 1px solid #ededf2;
+}
+.fcdoc .fc-tot td:last-child {
+  text-align: right;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.fcdoc .fc-tot tr.big td {
+  background: #f1eefb;
+  font-size: 14px;
+  font-weight: 800;
+  padding: 6px 8px;
+  border-top: 1.5px solid var(--doc-accent);
+}
+.fcdoc .fc-tot tr.bold td {
+  font-weight: 800;
+}
+.fcdoc .fc-words {
+  background: #fafafc;
+  border-left: 2.5px solid var(--doc-accent);
+  padding: 7px 10px;
+  border-radius: 0 4px 4px 0;
+}
+.fcdoc .fc-ledger {
+  margin-top: 10px;
+  border: 1px solid var(--doc-line);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.fcdoc .fc-ledger div {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 10px;
+  border-bottom: 1px solid #ededf2;
+}
+.fcdoc .fc-ledger div:last-child {
+  border-bottom: none;
+  background: #f6f3fe;
+  font-weight: 800;
+}
+.fcdoc .fc-sigs {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 24px;
+  margin-top: 18px;
+}
+.fcdoc .fc-sigs div {
+  border-top: 1px solid #8c8c99;
+  padding-top: 5px;
+  font-size: 8.5px;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--doc-mute);
+}
+.fcdoc .fc-foot {
+  margin-top: 10px;
+  padding-top: 6px;
+  border-top: 1px solid var(--doc-line);
+  text-align: center;
+  color: var(--doc-mute);
+  font-size: 9.5px;
+}
+.fcdoc .fc-foot b {
+  display: block;
+  color: var(--doc-ink);
+  font-size: 11.5px;
+  margin-bottom: 2px;
+}
+.fcdoc .fc-pagefoot {
+  display: none;
+}
+
+/* ── the classic layout (the shop's existing invoice: Urdu header, account ledger on the left, lines on the right) ── */
+.fcdoc.classic {
+  font-size: 11px;
+}
+.fcdoc.classic .cl-title {
+  text-align: center;
+  font-size: 23px;
+  font-weight: 800;
+  letter-spacing: 5px;
+  margin: 0 0 4px;
+}
+.fcdoc.classic .cl-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  border-bottom: 1px dotted #9a9aa6;
+  padding-bottom: 7px;
+  margin-bottom: 8px;
+}
+.fcdoc.classic .cl-head .l {
+  text-align: left;
+}
+.fcdoc.classic .cl-head .r {
+  text-align: right;
+}
+.fcdoc.classic .cl-en {
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.4px;
+}
+.fcdoc.classic .cl-mark {
+  font-size: 10px;
+  color: var(--doc-mute);
+}
+.fcdoc.classic .cl-phones {
+  text-align: center;
+  font-size: 10px;
+  margin: 5px 0 9px;
+  color: var(--doc-ink);
+}
+.fcdoc.classic .cl-parties {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+.fcdoc.classic .cl-bill {
+  border: 1px solid var(--doc-line);
+  border-radius: 3px;
+  padding: 7px 9px;
+  position: relative;
+}
+.fcdoc.classic .cl-bill .tag {
+  position: absolute;
+  top: -8px;
+  left: 9px;
+  background: #fff;
+  padding: 0 5px;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--doc-mute);
+}
+.fcdoc.classic .cl-bill b {
+  font-size: 14px;
+  display: block;
+  margin-bottom: 1px;
+}
+.fcdoc.classic table.cl-meta {
+  width: 100%;
+  border: 1px solid var(--doc-line);
+  border-radius: 3px;
+}
+.fcdoc.classic table.cl-meta td {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+.fcdoc.classic table.cl-meta td:first-child {
+  color: var(--doc-mute);
+}
+.fcdoc.classic table.cl-meta td:last-child {
+  text-align: right;
+  font-weight: 700;
+  border-left: 1px solid var(--doc-line);
+  background: #fafafc;
+  width: 46%;
+}
+.fcdoc.classic .cl-body {
+  display: grid;
+  grid-template-columns: 1fr 1.35fr;
+  gap: 14px;
+  align-items: start;
+}
+.fcdoc.classic table.cl-t {
+  width: 100%;
+}
+.fcdoc.classic table.cl-t th {
+  font-size: 10px;
+  font-weight: 700;
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1.5px solid #7a7a88;
+}
+.fcdoc.classic table.cl-t td {
+  padding: 3.5px 6px;
+  border-bottom: 1px solid #ececf1;
+  font-size: 11px;
+}
+.fcdoc.classic table.cl-t tfoot td {
+  border-top: 1.5px solid #7a7a88;
+  border-bottom: none;
+  font-weight: 700;
+  background: #fafafc;
+}
+.fcdoc.classic table.cl-t th.r,
+.fcdoc.classic table.cl-t td.r {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.fcdoc.classic .cl-prod {
+  line-height: 1.5;
+}
+.fcdoc.classic .cl-prod .en {
+  display: block;
+  font-size: 9px;
+  color: var(--doc-mute);
+}
+.fcdoc.classic .cl-box {
+  margin-top: 12px;
+  margin-left: auto;
+  width: 63%;
+  border: 1px solid var(--doc-line);
+  border-radius: 3px;
+}
+.fcdoc.classic .cl-box div {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 4px 10px;
+  border-bottom: 1px solid #ededf2;
+  min-height: 24px;
+}
+.fcdoc.classic .cl-box div:last-child {
+  border-bottom: none;
+}
+.fcdoc.classic .cl-box div.big {
+  border-top: 1.5px solid #7a7a88;
+  font-weight: 800;
+  font-size: 13.5px;
+  background: #fafafc;
+}
+.fcdoc.classic .cl-box i {
+  font-style: normal;
+  color: var(--doc-mute);
+  text-align: right;
+}
+.fcdoc.classic .cl-box b {
+  font-variant-numeric: tabular-nums;
+}
+.fcdoc.classic .cl-remarks {
+  margin-top: 14px;
+  font-size: 10.5px;
+  border-top: 1px dotted #9a9aa6;
+  padding-top: 6px;
+}
+.fcdoc.classic .cl-sigs {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 20px;
+  margin-top: 22px;
+}
+.fcdoc.classic .cl-sigs div {
+  border-top: 1px solid #8c8c99;
+  padding-top: 4px;
+  font-size: 9px;
+  color: var(--doc-mute);
+}
+.fcdoc .cl-foot {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid #000;
+  font-size: 9px;
+  line-height: 1.5;
+  text-align: center;
+}
+.fcdoc .cl-foot b {
+  display: block;
+  margin-bottom: 2px;
+}
+
+/* the sheet sits in a scroll box on a screen narrower than A4 (the page itself never scrolls sideways) */
+.fcdoc-wrap {
+  overflow-x: auto;
+}
+
+@media print {
+  .fcdoc-wrap {
+    overflow: visible;
+  }
+  .fcdoc {
+    width: auto !important;
+    min-height: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    border: 0 !important;
+  }
+  .fcdoc table.fc-items thead,
+  .fcdoc.classic table.cl-t thead {
+    display: table-header-group;
+  }
+  .fcdoc table.fc-items tfoot,
+  .fcdoc.classic table.cl-t tfoot {
+    display: table-row-group;
+  }
+  .fcdoc table.fc-items tr,
+  .fcdoc.classic table.cl-t tr {
+    break-inside: avoid;
+  }
+  .fcdoc .fc-bottom,
+  .fcdoc .fc-ledger,
+  .fcdoc .fc-sigs,
+  .fcdoc.classic .cl-box,
+  .fcdoc.classic .cl-sigs {
+    break-inside: avoid;
+  }
+  .fcdoc .fc-pagefoot {
+    display: block;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 8px;
+    color: #8c8c99;
+  }
+}

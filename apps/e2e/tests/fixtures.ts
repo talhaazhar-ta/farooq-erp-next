@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { test as base, expect, type BrowserContext, type Page } from "@playwright/test";
-import type { PaymentDetail, PaymentListResponse, PartyLookupItem, Role, Statement } from "@farooq/shared";
+import type { InvoiceDetail, InvoiceListResponse, PaymentDetail, PaymentListResponse, PartyLookupItem, ProductPickItem, Role, Statement, WarehouseItem } from "@farooq/shared";
 import { ARTIFACTS_DIR, readState } from "../setup/env";
 
 export { expect };
@@ -109,6 +109,47 @@ export async function allPayments(api: Api, q = ""): Promise<PaymentListResponse
     out.push(...r.items);
     if (out.length >= r.total || r.items.length === 0) return out;
   }
+}
+
+/* ── invoices (S9) ───────────────────────────────────────────────────────────────────────────── */
+
+export const invoicesList = (api: Api, q: string): Promise<InvoiceListResponse> => api.get(`/invoices?${q}`);
+export const invoiceDetailOf = (api: Api, id: string): Promise<InvoiceDetail> => api.get(`/invoices/${id}`);
+
+/** Every invoice matching `q` (walks the 200-row pages). */
+export async function allInvoices(api: Api, q = ""): Promise<InvoiceListResponse["items"]> {
+  const out: InvoiceListResponse["items"] = [];
+  for (let offset = 0; ; offset += 200) {
+    const r = await invoicesList(api, `${q}${q ? "&" : ""}limit=200&offset=${offset}`);
+    out.push(...r.items);
+    if (out.length >= r.total || r.items.length === 0) return out;
+  }
+}
+
+/** The first godown and a product with plenty of bags in it (the synthetic products each start with 100,000 in both godowns). */
+export async function stockBasics(api: Api): Promise<{ warehouse: WarehouseItem; product: ProductPickItem; product2: ProductPickItem }> {
+  const warehouse = (await api.get<WarehouseItem[]>("/warehouses")).find((w) => w.active)!;
+  const products = await api.get<ProductPickItem[]>(`/products?warehouseId=${warehouse.id}&limit=20`);
+  return { warehouse, product: products[0]!, product2: products[1]! };
+}
+
+let keyCounter = 0;
+/** POST /invoices through the real API: one 20-bag line at Rs 1,500 = 30,000.00 (+ an optional second product). Returns the saved invoice. */
+export async function postInvoice(
+  api: Api,
+  o: { customerId: string; mode?: "post" | "draft"; paidAmountP?: number; date?: string; qty?: number; unitPriceP?: number; second?: boolean },
+): Promise<InvoiceDetail> {
+  const { warehouse, product, product2 } = await stockBasics(api);
+  const lines = [{ productId: product.id, quantity: o.qty ?? 20, unitPriceP: o.unitPriceP ?? 150_000 }, ...(o.second ? [{ productId: product2.id, quantity: 5, unitPriceP: 90_000 }] : [])];
+  return api.postOk<InvoiceDetail>("/invoices", {
+    mode: o.mode ?? "post",
+    customerId: o.customerId,
+    warehouseId: warehouse.id,
+    ...(o.date ? { date: o.date } : {}),
+    lines,
+    ...(o.paidAmountP ? { paidAmountP: o.paidAmountP } : {}),
+    idempotencyKey: `e2e-${Date.now()}-${++keyCounter}`,
+  });
 }
 
 /* ── small helpers ───────────────────────────────────────────────────────────────────────────── */

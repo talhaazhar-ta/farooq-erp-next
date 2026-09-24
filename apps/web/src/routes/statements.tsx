@@ -158,8 +158,8 @@ function StatementPaper({ s, kind, company }: { s: Statement; kind: PartyKind; c
     // a cell that starts like a formula is neutralised (spreadsheet injection), same as the payments export
     const safe = (v: string) => (/^[=+\-@\t\r]/.test(v) ? `'${v}` : v);
     const lines = [
-      ["Date", "Ref", "Description", "Debit", "Credit", "Balance"].map(q).join(","),
-      ...s.rows.map((r) => [r.date, r.ref, r.description, rupeesText(r.debitP), rupeesText(r.creditP), rupeesText(r.balanceP)].map((c) => q(safe(c))).join(",")),
+      ["Date", "Ref", "Description", "Qty", "Debit", "Credit", "Balance"].map(q).join(","),
+      ...s.rows.map((r) => [r.date, r.ref, r.detail ?? r.description, r.qtyLabel, rupeesText(r.debitP), rupeesText(r.creditP), rupeesText(r.balanceP)].map((c) => q(safe(c))).join(",")),
     ];
     const blob = new Blob([String.fromCharCode(0xfeff) + lines.join("\r\n") + "\r\n"], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -211,6 +211,7 @@ function StatementPaper({ s, kind, company }: { s: Statement; kind: PartyKind; c
                 <th className="text-xs">Date</th>
                 <th className="text-xs">Ref</th>
                 <th className="text-xs">Description</th>
+                <th className="num text-xs">Qty</th>
                 <th className="num text-xs">Debit</th>
                 <th className="num text-xs">Credit</th>
                 <th className="num text-xs">Balance</th>
@@ -219,7 +220,7 @@ function StatementPaper({ s, kind, company }: { s: Statement; kind: PartyKind; c
             <tbody>
               {s.rows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="muted text-center">
+                  <td colSpan={7} className="muted text-center">
                     No entries in this period.
                   </td>
                 </tr>
@@ -228,7 +229,8 @@ function StatementPaper({ s, kind, company }: { s: Statement; kind: PartyKind; c
                   <tr key={`${i}:${r.source.id}`} data-testid="statement-row">
                     <td className="whitespace-nowrap">{fmtDate(r.date)}</td>
                     <td className="font-mono text-xs">{r.ref}</td>
-                    <td dir="auto">{r.description}</td>
+                    <td dir="auto" data-testid="statement-description">{r.detail ?? r.description}</td>
+                    <td className="num" data-testid="statement-qty">{r.qtyLabel}</td>
                     <td className="num">{r.debitP ? formatPaisaPlain(r.debitP) : ""}</td>
                     <td className="num">{r.creditP ? formatPaisaPlain(r.creditP) : ""}</td>
                     <td className="num whitespace-nowrap">{balanceCell(kind, r.balanceP)}</td>
@@ -239,6 +241,7 @@ function StatementPaper({ s, kind, company }: { s: Statement; kind: PartyKind; c
                 <td colSpan={3} className="text-right font-semibold">
                   Totals
                 </td>
+                <td />
                 <td className="num font-semibold" data-testid="statement-total-debit">{formatPaisaPlain(s.totals.debitP)}</td>
                 <td className="num font-semibold" data-testid="statement-total-credit">{formatPaisaPlain(s.totals.creditP)}</td>
                 <td />
@@ -259,7 +262,8 @@ function StatementPaper({ s, kind, company }: { s: Statement; kind: PartyKind; c
                     <span className="whitespace-nowrap font-medium">{fmtDate(r.date)}</span>
                     <span className="num font-semibold">{balanceCell(kind, r.balanceP)}</span>
                   </div>
-                  <p dir="auto" className="text-left">{r.description}</p>
+                  <p dir="auto" className="text-left">{r.detail ?? r.description}</p>
+                  {r.qtyLabel !== "—" ? <p className="muted text-xs">Qty {r.qtyLabel}</p> : null}
                   <div className="muted flex items-baseline justify-between gap-3 text-xs">
                     <span className="font-mono">{r.ref}</span>
                     <span className="num">

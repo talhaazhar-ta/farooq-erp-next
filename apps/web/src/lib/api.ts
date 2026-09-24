@@ -97,7 +97,7 @@ async function postParsed<S extends z.ZodTypeAny>(path: string, body: unknown, s
   const parsed = schema.safeParse(json);
   if (!parsed.success) {
     console.error("Unexpected response shape from", path, parsed.error.issues);
-    throw new ApiError(0, "The change may have been saved, but the answer was not understood. Check the Payments list before trying again.");
+    throw new ApiError(0, "The change may have been saved, but the answer was not understood. Reload the page and check the record before trying again.");
   }
   return parsed.data;
 }

@@ -3,7 +3,7 @@ import { test as base } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import type { Role } from "@farooq/shared";
 import { readState } from "../setup/env";
-import { test, expect, apiAs, allPayments, findParty, expectNoHorizontalScroll, shot, ARTIFACTS_DIR, SCENARIO, type Api } from "./fixtures";
+import { test, expect, apiAs, allPayments, allInvoices, invoiceDetailOf, findParty, expectNoHorizontalScroll, shot, ARTIFACTS_DIR, SCENARIO, type Api } from "./fixtures";
 
 /**
  * Every screen at desktop (1280), phone (390) and in the dark theme, screenshotted into e2e-artifacts/ (gitignored) to be LOOKED AT,
@@ -18,6 +18,7 @@ const VARIANTS = [
 ];
 
 let api: Api;
+let inv: { draft: string; confirmed: string; partPaid: string; paid: string; cancelled: string; profitRich: string; movable: string };
 let ids: { received: string; receivedAllocated: string; reversed: string; supplierPaid: string; busiestShop: string; supplier: string; alpha: string };
 
 test.beforeAll(async () => {
@@ -30,6 +31,18 @@ test.beforeAll(async () => {
     const st = await api.get<{ rows: unknown[] }>(`/customers/${s.id}/statement`);
     if (st.rows.length > best.rows) best = { id: s.id, rows: st.rows.length };
   }
+  const invoices = await allInvoices(api);
+  const firstOf = (status: string, ok: (i: (typeof invoices)[number]) => boolean = () => true) => invoices.find((i) => i.status === status && ok(i))!.id;
+  inv = {
+    draft: firstOf("DRAFT", (i) => i.itemCount >= 2),
+    confirmed: firstOf("CONFIRMED", (i) => i.itemCount >= 2),
+    partPaid: firstOf("PARTIALLY_PAID", (i) => i.itemCount >= 2),
+    paid: firstOf("PAID", (i) => i.itemCount >= 2 && i.paidP > 0),
+    cancelled: firstOf("CANCELLED", (i) => i.number !== null),
+    profitRich: firstOf("CONFIRMED", (i) => i.itemCount >= 3),
+    movable: firstOf("CONFIRMED", (i) => i.itemCount >= 1 && i.paidP === 0),
+  };
+  void invoiceDetailOf;
   ids = {
     received: posted.find((p) => p.kind === "received" && p.appliedTo.length === 0)!.id,
     receivedAllocated: posted.find((p) => p.kind === "received" && p.appliedTo.length >= 2)!.id,
@@ -113,6 +126,47 @@ const SCREENS: Screen[] = [
   { name: "statement-empty", url: () => "/statements", prepare: (p) => expect(p.getByText("Choose a shop to see its statement")).toBeVisible() },
   { name: "statement-shop", url: () => `/statements?type=customer&partyId=${ids.busiestShop}`, prepare: (p) => expect(p.getByTestId("statement-closing")).toBeVisible() },
   { name: "statement-supplier", url: () => `/statements?type=supplier&partyId=${ids.supplier}`, prepare: (p) => expect(p.getByTestId("statement-closing")).toBeVisible() },
+  { name: "invoices-list", url: () => "/invoices", prepare: (p) => expect(p.getByTestId("invoice-row").first()).toBeVisible() },
+  { name: "invoices-filtered", url: () => "/invoices?status=PARTIALLY_PAID&period=last90&sort=due", prepare: (p) => expect(p.getByTestId("count-line")).toContainText(" of ") },
+  { name: "invoices-empty", url: () => "/invoices?q=zzzzqqqq", prepare: (p) => expect(p.getByText("No invoices match")).toBeVisible() },
+  { name: "invoices-date-read-as", url: () => "/invoices?q=12%2F09%2F2026+karim", prepare: (p) => expect(p.getByTestId("search-read-as")).toBeVisible() },
+  { name: "invoices-product-hits", url: () => "/invoices?q=sella&scope=product", prepare: (p) => expect(p.getByTestId("row-hits").first()).toBeVisible() },
+  { name: "invoice-view-confirmed", url: () => `/invoices/${inv.confirmed}`, prepare: (p) => expect(p.getByTestId("invoice-number")).toBeVisible() },
+  { name: "invoice-view-paid", url: () => `/invoices/${inv.paid}`, prepare: (p) => expect(p.getByTestId("receipt-row").first()).toBeVisible() },
+  { name: "invoice-view-part-paid", url: () => `/invoices/${inv.partPaid}`, prepare: (p) => expect(p.getByTestId("reason-cancel")).toBeVisible() },
+  { name: "invoice-view-draft", url: () => `/invoices/${inv.draft}`, prepare: (p) => expect(p.getByTestId("draft-banner")).toBeVisible() },
+  { name: "invoice-view-cancelled", url: () => `/invoices/${inv.cancelled}`, prepare: (p) => expect(p.getByTestId("cancelled-banner")).toBeVisible() },
+  { name: "invoice-view-profit", url: () => `/invoices/${inv.profitRich}`, prepare: (p) => expect(p.getByTestId("profit-block")).toBeVisible() },
+  { name: "invoice-view-sales", role: "SALES", url: () => `/invoices/${inv.confirmed}`, prepare: (p) => expect(p.getByTestId("invoice-number")).toBeVisible() },
+  {
+    name: "invoice-cancel-dialog",
+    url: () => `/invoices/${inv.movable}`,
+    dialog: true,
+    prepare: async (p) => {
+      await p.getByTestId("action-cancel").click();
+      await expect(p.getByRole("dialog")).toBeVisible();
+    },
+  },
+  {
+    name: "invoice-change-shop-dialog",
+    url: () => `/invoices/${inv.movable}`,
+    dialog: true,
+    prepare: async (p) => {
+      await p.getByTestId("action-change-shop").click();
+      const dlg = p.getByRole("dialog");
+      await expect(dlg).toBeVisible();
+      const combo = dlg.getByRole("combobox", { name: "Correct shop" });
+      await combo.click();
+      await combo.fill(SCENARIO.hotel.name);
+      await dlg.getByRole("option", { name: new RegExp(SCENARIO.hotel.name) }).click();
+      await expect(dlg.getByTestId("cs-new-after")).toBeVisible();
+    },
+  },
+  { name: "invoice-print-classic", url: () => `/invoices/${inv.paid}/print`, prepare: (p) => expect(p.getByTestId("invoice-paper")).toHaveAttribute("data-template", "classic") },
+  { name: "invoice-print-standard", url: () => `/invoices/${inv.paid}/print?template=standard`, prepare: (p) => expect(p.getByTestId("invoice-paper")).toHaveAttribute("data-template", "standard") },
+  { name: "invoice-print-draft", url: () => `/invoices/${inv.draft}/print`, prepare: (p) => expect(p.getByTestId("invoice-ribbon")).toBeVisible() },
+  { name: "invoice-print-cancelled", url: () => `/invoices/${inv.cancelled}/print?template=standard`, prepare: (p) => expect(p.getByTestId("invoice-ribbon")).toBeVisible() },
+  { name: "invoices-not-available", role: "INVENTORY", url: () => "/invoices", prepare: (p) => expect(p.getByTestId("not-available")).toBeVisible() },
   { name: "not-available", role: "INVENTORY", url: () => "/payments", prepare: (p) => expect(p.getByTestId("not-available")).toBeVisible() },
   { name: "dashboard", url: () => "/", prepare: (p) => expect(p.getByRole("heading", { level: 1 })).toBeVisible() },
 ];

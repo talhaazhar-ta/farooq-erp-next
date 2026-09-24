@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { ROLES, type Role } from "@farooq/shared";
-import { canCorrect, canPayOut, canReadPayments, canReceive, notAvailableTitle, visibleNav } from "./access";
+import {
+  canCorrect,
+  canCorrectInvoice,
+  canDiscardDraft,
+  canDuplicateInvoice,
+  canPayOut,
+  canReadInvoices,
+  canReadPayments,
+  canReceive,
+  canSeeProfit,
+  notAvailableTitle,
+  visibleNav,
+} from "./access";
 
 const labels = (role: Role) => visibleNav(role).map((n) => n.label);
 
@@ -41,5 +53,29 @@ describe("what each role sees and can do (the permission matrix, in the UI)", ()
   it("the not-available panel names the role in the legacy wording", () => {
     expect(notAvailableTitle("INVENTORY")).toBe("Not available for the Warehouse role");
     expect(notAvailableTitle("SALES")).toBe("Not available for the Sales role");
+  });
+
+  it("invoices: OWNER / MANAGER / ACCOUNTANT / SALES read them, the warehouse role does not (nav hidden)", () => {
+    for (const role of ["OWNER", "MANAGER", "ACCOUNTANT", "SALES"] as Role[]) {
+      expect(canReadInvoices(role)).toBe(true);
+      expect(labels(role)).toContain("Invoices");
+    }
+    expect(canReadInvoices("INVENTORY")).toBe(false);
+    expect(labels("INVENTORY")).not.toContain("Invoices");
+  });
+
+  it("SALES may discard a draft and duplicate, but not cancel a posted invoice or change its shop; the corrector roles may", () => {
+    expect(canDiscardDraft("SALES")).toBe(true);
+    expect(canDuplicateInvoice("SALES")).toBe(true);
+    expect(canCorrectInvoice("SALES")).toBe(false);
+    for (const role of ["OWNER", "MANAGER", "ACCOUNTANT"] as Role[]) expect(canCorrectInvoice(role)).toBe(true);
+    expect(canDiscardDraft("INVENTORY")).toBe(false);
+    expect(canDuplicateInvoice("INVENTORY")).toBe(false);
+  });
+
+  it("profit is for the roles that hold PROFIT_VIEW only", () => {
+    for (const role of ["OWNER", "MANAGER", "ACCOUNTANT"] as Role[]) expect(canSeeProfit(role)).toBe(true);
+    expect(canSeeProfit("SALES")).toBe(false);
+    expect(canSeeProfit("INVENTORY")).toBe(false);
   });
 });

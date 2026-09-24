@@ -1,6 +1,13 @@
 import { z } from "zod";
 import {
   companyProfileSchema,
+  invoiceDetailSchema,
+  invoiceListResponseSchema,
+  invoicePrintSchema,
+  warehouseItemSchema,
+  type CancelInvoiceInput,
+  type ChangeInvoiceShopInput,
+  type DuplicateInvoiceInput,
   outstandingDocumentSchema,
   partyBalanceSchema,
   partyLookupItemSchema,
@@ -32,6 +39,11 @@ export const keys = {
   parties: (type: PartyType, q: string, regionId: string) => ["parties", type, q, regionId] as const,
   regions: ["regions"] as const,
   company: ["company"] as const,
+  invoices: ["invoices"] as const,
+  invoiceList: (params: Record<string, string>) => ["invoices", "list", params] as const,
+  invoice: (id: string) => ["invoices", "detail", id] as const,
+  invoicePrint: (id: string, template: string) => ["invoices", "print", id, template] as const,
+  warehouses: ["warehouses"] as const,
 };
 
 export type PartyType = "customer" | "supplier";
@@ -66,6 +78,33 @@ export const editPaymentAmount = (id: string, body: EditPaymentAmountInput) => a
 /** The CSV: every match of the current filters (no paging), saved with the server's own file name. */
 export async function exportPaymentsCsv(params: Record<string, string>): Promise<string> {
   const { blob, filename } = await api.download(`/payments/export.csv${toQueryString(params)}`);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  return filename;
+}
+
+/* ── invoices (S9: read and correct; the builder is S10) ─────────────────────────────────────── */
+
+export const listInvoices = (params: Record<string, string>, signal?: AbortSignal) =>
+  api.getParsed(`/invoices${toQueryString(params)}`, invoiceListResponseSchema, signal);
+export const getInvoice = (id: string) => api.getParsed(`/invoices/${id}`, invoiceDetailSchema);
+export const getInvoicePrint = (id: string, template: string) =>
+  api.getParsed(`/invoices/${id}/print${toQueryString(template ? { template } : {})}`, invoicePrintSchema);
+export const getWarehouses = () => api.getParsed("/warehouses", z.array(warehouseItemSchema));
+
+export const cancelInvoice = (id: string, body: CancelInvoiceInput) => api.postParsed(`/invoices/${id}/cancel`, body, invoiceDetailSchema);
+export const duplicateInvoice = (id: string, body: DuplicateInvoiceInput) => api.postParsed(`/invoices/${id}/duplicate`, body, invoiceDetailSchema);
+export const changeInvoiceShop = (id: string, body: ChangeInvoiceShopInput) => api.postParsed(`/invoices/${id}/change-shop`, body, invoiceDetailSchema);
+
+/** The invoice CSV: every match of the current filters (no paging), saved with the server's own file name. */
+export async function exportInvoicesCsv(params: Record<string, string>): Promise<string> {
+  const { blob, filename } = await api.download(`/invoices/export.csv${toQueryString(params)}`);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

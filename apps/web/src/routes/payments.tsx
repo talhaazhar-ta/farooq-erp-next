@@ -4,7 +4,8 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { businessDateOf, formatPaisaPlain, type PaymentListItem } from "@farooq/shared";
 import { RequirePaymentsAccess } from "../components/guard";
 import { PaymentPanel } from "../components/payment-panels";
-import { Badge, Banner, Button, EmptyState, ErrorLines, inputClass, useToast, cn } from "../components/ui";
+import { Badge, Banner, Button, EmptyState, ErrorLines, inputClass, LabeledSelect, useToast, cn } from "../components/ui";
+import { useMediaQuery } from "../lib/media";
 import { useAuth } from "../lib/auth";
 import { canPayOut, canReceive } from "../lib/access";
 import { fmtDate, KIND_LABELS } from "../lib/format";
@@ -209,11 +210,11 @@ function PaymentsScreen() {
         </LabeledSelect>
         {filters.period === "custom" ? (
           <>
-            <label className="text-xs text-(--color-text-muted)">
+            <label className="flex flex-col text-xs text-(--color-text-muted)">
               From
               <input type="date" value={filters.from} onChange={(e) => setFilters({ from: e.target.value })} className={cn(inputClass, "mt-0.5 w-auto")} />
             </label>
-            <label className="text-xs text-(--color-text-muted)">
+            <label className="flex flex-col text-xs text-(--color-text-muted)">
               To
               <input type="date" value={filters.to} onChange={(e) => setFilters({ to: e.target.value })} className={cn(inputClass, "mt-0.5 w-auto")} />
             </label>
@@ -233,7 +234,7 @@ function PaymentsScreen() {
             </option>
           ))}
         </LabeledSelect>
-        <label className="text-xs text-(--color-text-muted)">
+        <label className="flex flex-col text-xs text-(--color-text-muted)">
           Amount from
           <input
             inputMode="decimal"
@@ -245,7 +246,7 @@ function PaymentsScreen() {
             className={cn(inputClass, "mt-0.5 w-28")}
           />
         </label>
-        <label className="text-xs text-(--color-text-muted)">
+        <label className="flex flex-col text-xs text-(--color-text-muted)">
           Amount to
           <input
             inputMode="decimal"
@@ -360,32 +361,6 @@ function PaymentsScreen() {
       {filters.panel === "pay" && user && canPayOut(user.role) ? <PaymentPanel mode="pay" onClose={() => setFilters({ panel: "" }, { replace: false })} /> : null}
       {filters.panel === "refund" && user && canPayOut(user.role) ? <PaymentPanel mode="refund" onClose={() => setFilters({ panel: "" }, { replace: false })} /> : null}
     </div>
-  );
-}
-
-/** True while the viewport matches (a phone gets cards, a desktop a table — only one of them is ever in the page). */
-function useMediaQuery(query: string): boolean {
-  const get = () => (typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia(query).matches : true);
-  const [matches, setMatches] = useState(get);
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") return;
-    const mql = window.matchMedia(query);
-    const on = () => setMatches(mql.matches);
-    on();
-    mql.addEventListener("change", on);
-    return () => mql.removeEventListener("change", on);
-  }, [query]);
-  return matches;
-}
-
-function LabeledSelect({ label, value, onChange, children }: { label: string; value: string; onChange: (v: string) => void; children: React.ReactNode }) {
-  return (
-    <label className="text-xs text-(--color-text-muted)">
-      {label}
-      <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} className={cn(inputClass, "mt-0.5 w-auto")}>
-        {children}
-      </select>
-    </label>
   );
 }
 

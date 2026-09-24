@@ -298,7 +298,14 @@ function AllocationSection({
               const rowError = manual.rowErrors[d.id];
               return (
                 <tr key={d.id} className="border-t border-(--color-border)" data-testid="alloc-row" data-invoice={d.number ?? ""}>
-                  <td className="px-2 py-1.5 font-mono text-xs">{d.number ?? "(draft)"}</td>
+                  <td className="px-2 py-1.5">
+                    <span className="font-mono text-xs">{d.number ?? "(draft)"}</span>
+                    {d.lineSummary ? (
+                      <span dir="auto" className="block max-w-[16rem] text-left text-xs text-(--color-text-muted)" data-testid="alloc-summary">
+                        {d.lineSummary}
+                      </span>
+                    ) : null}
+                  </td>
                   <td className="px-2 py-1.5">{fmtDate(d.date)}</td>
                   <td className="num px-2 py-1.5">{formatPaisaPlain(d.outstandingP)}</td>
                   <td className="num px-2 py-1.5">

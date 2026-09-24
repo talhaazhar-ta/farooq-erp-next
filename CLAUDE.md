@@ -146,20 +146,21 @@ fixture (a test checks it hasn't drifted).
 
 **Browser tests (`pnpm e2e`, S5).** One-time: `pnpm --filter @farooq/e2e exec playwright install chromium` (or set `CHROME_CHANNEL=chrome` to use an installed
 Google Chrome). Global setup (`apps/e2e/setup/global-setup.ts`) starts a throwaway Postgres (embedded on :55433, or CI's service container), imports the e2e dataset
-(S4's seeded ~300-payment synthetic backup + a few hand-made shops, `setup/dataset.ts`) through the real importer and reconciles it, creates one user per role with
+(S8's seeded 300 invoices with lines + S4's 300 payments re-numbered onto them + hand-made shops with known balances, `setup/dataset.ts`) through the real importer and reconciles it, creates one user per role with
 **generated** passwords (only in the gitignored `apps/e2e/.run/state.json`), starts the built API (:3100) and a fresh build of the web app served by `vite preview` (:4173),
 and signs each role in once (storage states). Specs run one at a time, in file order, on that one database — each test that moves money uses its own shop from the dataset.
 - one spec: `pnpm --filter @farooq/e2e exec playwright test tests/receive.spec.ts` (one test: add `-g "part of its name"`; `--headed` to watch; `--ui` for the inspector).
 - `pnpm --filter @farooq/e2e run serve` starts that same stack and leaves it running for a person or a scratch script to look at (Ctrl+C stops it; if a run is killed, an orphaned
   postgres on :55433 and a node on :3100 / :4173 must be stopped by hand before the next run).
 - Screenshots (desktop / phone / dark) and the PDFs the print tests read back are written to `apps/e2e/e2e-artifacts/` (gitignored) by `tests/visual.spec.ts` / `receipt-print.spec.ts` — open them and look.
+- Invoice specs (S9) are `tests/invoices-*.spec.ts`: each money-moving one owns a shop (Kilo / Lima / Mike / November / Oscar), creates its invoices through the API (`postInvoice` in `tests/fixtures.ts`) and reads expected figures back from the API; the print spec reads the PDF Chromium prints with pdf.js (letter-spaced headings extract with gaps — compare with whitespace removed).
 - Any `console.error` fails a golden-path test (a test that provokes a refusal sets `allowConsoleErrors`). Sign-in specs spend real login attempts (the API throttles 20 / 15 min / IP), everything else reuses the storage states.
 
 ## Roadmap
 
 See `docs/ROADMAP.md` for the full milestone list. **M1 — Foundation + Payments is complete** (S1–S5).
 Current milestone: **M2 — Invoices** (**S6 invoice lines + stock quantities ✓** → **S7 Invoices service + API ✓** → **S8 search/print/profit server side ✓** →
-S9 invoice list / view / print / corrections + e2e → S10 invoice builder + e2e, closes M2). The owner's three M2 decisions (cancel with receipts refused; permissions; net edit of posted invoices) are in `docs/ROADMAP.md` → M2.
+**S9 invoice list / view / print / corrections + e2e ✓** → S10 invoice builder + e2e, closes M2). The owner's three M2 decisions (cancel with receipts refused; permissions; net edit of posted invoices) are in `docs/ROADMAP.md` → M2.
 
 ## Where to look for more detail
 

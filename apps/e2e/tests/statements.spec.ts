@@ -54,9 +54,12 @@ test("a shop's statement on screen equals the API's: every row, the totals, open
     expected.rows.forEach((r, i) => {
       const cells = screen.rows[i]!;
       expect(cells[1], `row ${i} ref`).toBe(r.ref);
-      expect(paisaOf(cells[3] || "0"), `row ${i} debit`).toBe(r.debitP);
-      expect(paisaOf(cells[4] || "0"), `row ${i} credit`).toBe(r.creditP);
-      expect(paisaOf(cells[5]!) * (cells[5]!.endsWith("Cr") ? -1 : 1), `row ${i} balance`).toBe(r.balanceP);
+      // S9 added the Qty column after Description, so debit / credit / balance moved one to the right (deliberate change of S5's indices)
+      expect(cells[2], `row ${i} description = the invoice's detail, else the ledger wording`).toBe(r.detail ?? r.description);
+      expect(cells[3], `row ${i} qty`).toBe(r.qtyLabel);
+      expect(paisaOf(cells[4] || "0"), `row ${i} debit`).toBe(r.debitP);
+      expect(paisaOf(cells[5] || "0"), `row ${i} credit`).toBe(r.creditP);
+      expect(paisaOf(cells[6]!) * (cells[6]!.endsWith("Cr") ? -1 : 1), `row ${i} balance`).toBe(r.balanceP);
     });
     expect(screen.debit).toBe(expected.totals.debitP);
     expect(screen.credit).toBe(expected.totals.creditP);
@@ -159,6 +162,10 @@ test("Download CSV: BOM, one line per row, spreadsheet-safe", async ({ open }) =
   const raw = readFileSync(await download.path()!, "utf8");
   expect(raw.charCodeAt(0)).toBe(0xfeff);
   const table = parseCsv(raw.slice(1)).filter((r) => r.length > 1);
-  expect(table[0]).toEqual(["Date", "Ref", "Description", "Debit", "Credit", "Balance"]);
+  expect(table[0]).toEqual(["Date", "Ref", "Description", "Qty", "Debit", "Credit", "Balance"]); // S9: + Qty
   expect(table).toHaveLength(expected.rows.length + 1);
+  expected.rows.forEach((r, i) => {
+    expect(table[i + 1]![2], `csv row ${i} description`).toBe(r.detail ?? r.description);
+    expect(table[i + 1]![3], `csv row ${i} qty`).toBe(r.qtyLabel);
+  });
 });

@@ -6,6 +6,10 @@ import { PaymentsPage } from "./routes/payments";
 import { PaymentDetailPage } from "./routes/payment-detail";
 import { ReceiptPage } from "./routes/receipt";
 import { StatementsPage } from "./routes/statements";
+import { InvoicesPage } from "./routes/invoices";
+import { InvoiceDetailPage } from "./routes/invoice-detail";
+import { InvoicePrintPage, templateFromSearch } from "./routes/invoice-print";
+import { invoiceFiltersFromSearch, invoiceFiltersToSearch } from "./lib/invoice-filters";
 import { filtersFromSearch, filtersToSearch } from "./lib/payment-filters";
 import { statementSearchFrom, statementSearchOut } from "./lib/statement-filters";
 
@@ -46,6 +50,26 @@ const receiptRoute = createRoute({
   component: ReceiptPage,
 });
 
+const invoicesRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: "/invoices",
+  validateSearch: (raw: Record<string, unknown>): Record<string, string> => invoiceFiltersToSearch(invoiceFiltersFromSearch(raw)),
+  component: InvoicesPage,
+});
+
+const invoiceDetailRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: "/invoices/$id",
+  component: InvoiceDetailPage,
+});
+
+const invoicePrintRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: "/invoices/$id/print",
+  validateSearch: (raw: Record<string, unknown>): { template?: string } => templateFromSearch(raw),
+  component: InvoicePrintPage,
+});
+
 const statementsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/statements",
@@ -55,7 +79,7 @@ const statementsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   signInRoute,
-  shellRoute.addChildren([indexRoute, paymentsRoute, paymentDetailRoute, receiptRoute, statementsRoute]),
+  shellRoute.addChildren([indexRoute, paymentsRoute, paymentDetailRoute, receiptRoute, invoicesRoute, invoiceDetailRoute, invoicePrintRoute, statementsRoute]),
 ]);
 
 /**

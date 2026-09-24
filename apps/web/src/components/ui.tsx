@@ -68,6 +68,18 @@ export function Field({ label, hint, error, children, className }: { label: stri
   );
 }
 
+/** A small labelled `<select>` for a filter bar. */
+export function LabeledSelect({ label, value, onChange, children }: { label: string; value: string; onChange: (v: string) => void; children: ReactNode }) {
+  return (
+    <label className="flex flex-col text-xs text-(--color-text-muted)">
+      {label}
+      <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} className={cn(inputClass, "mt-0.5 w-auto")}>
+        {children}
+      </select>
+    </label>
+  );
+}
+
 /* ── banners, badges, empty states ────────────────────────────────────── */
 
 type Tone = "info" | "warn" | "error" | "success";
@@ -200,7 +212,7 @@ export function Dialog({ open, onClose, title, description, children, wide = fal
             </p>
           ) : null}
         </div>
-        <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close">
+        <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close" className="shrink-0 whitespace-nowrap">
           Close
         </Button>
       </div>
