@@ -18,7 +18,7 @@ Keep this file under ~150 lines.
 ## Baseline (run before you change anything)
 
 `pnpm install && pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm e2e` — all green, 0 lint warnings, **and check the exit code** (until S8, CI could not fail on a failing test).
-`pnpm test`: **1,109 tests** (shared 151, web 209, import 224, api 525; 2 import tests + the real-backup datasets skip without `data/`). `pnpm e2e`: **165 Playwright tests** (~7.5 min). CI: S9 green (run 36010060366); **S10: see the line at the bottom of this file.**
+`pnpm test`: **1,109 tests** (shared 151, web 209, import 224, api 525; 2 import tests + the real-backup datasets skip without `data/`). `pnpm e2e`: **165 Playwright tests** (~7.5 min). CI: S10 green (run 36023883386), S9 green (run 36010060366).
 
 ## Repo map
 
@@ -87,4 +87,4 @@ Every screen. In particular a real phone (only a 390 px emulated viewport); a **
 
 ## CI
 
-S10 commit `d5e6ca5`: run 36023883386 — result to be recorded here when it finishes (the S10 session ended while it was still running).
+S10 commit `d5e6ca5`: **green** — run 36023883386: build, typecheck, lint, test (1,109) and the Playwright job (165) all succeeded on the Linux runner (confirmed per step by the planning hub; the S10 session had ended while it was still running).
