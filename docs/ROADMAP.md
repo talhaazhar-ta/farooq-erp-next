@@ -36,7 +36,8 @@ documents, stock value, average-cost maintenance and the COGS journal. Not used 
 | **S6: invoice lines + stock quantities (data, import)** | migration (invoice lines, full header, `stock_movements`, `stock_levels`, product catalogue/prices), shared `invoiceTotals` (port of `Calc`), invoice posting builder in `ledger.ts`, importer + reconciliation of totals and stock | fixture + real backups: 0 balance / invoice-total / stock differences |
 | **S7: Invoices service + API ✓** | draft (many), post (number, stock, cost snapshot, payment at sale, journal), edit posted (net), cancel, duplicate, change shop, verbatim validation, permissions, concurrency, ledger bridge | rule tests + 403s + bridge green; reconciliation 0 |
 | **S8: search, print model, profit, statement detail (server) ✓** | port of module 33 + CSV, printed invoice model (classic + standard from one model), per-invoice profit (`PROFIT_VIEW`), statement description/Qty from module 24; SALES may discard a draft | search parity vs JS reference on three datasets; print/profit tests; reconciliation 0 |
-| **S9: invoice screens + e2e** | list, builder, view/print, corrections; Playwright; screenshots reviewed (may split into S9a/S9b) | e2e green; "not seen by a person" list; M2 complete |
+| **S9: invoice list, view, print, corrections + e2e** | list/search/cards/CSV, view page, print (classic + standard, A4), discard / cancel / duplicate / change shop, profit block, statement Qty + Receive-panel detail; Playwright; screenshots reviewed | e2e green; screenshots reviewed; reconciliation 0 |
+| **S10: invoice builder + e2e — closes M2** | new / edit / post, live totals, stock and price hints, payment at sale, edit posted (net, stale revision), unsaved-changes guard, phone layout; Playwright; M2 summary | e2e green; "not seen by a person" list; M2 complete |
 
 ## After M2 (not yet broken into sessions)
 

@@ -159,7 +159,7 @@ and signs each role in once (storage states). Specs run one at a time, in file o
 
 See `docs/ROADMAP.md` for the full milestone list. **M1 — Foundation + Payments is complete** (S1–S5).
 Current milestone: **M2 — Invoices** (**S6 invoice lines + stock quantities ✓** → **S7 Invoices service + API ✓** → **S8 search/print/profit server side ✓** →
-S9 screens + e2e). The owner's three M2 decisions (cancel with receipts refused; permissions; net edit of posted invoices) are in `docs/ROADMAP.md` → M2.
+S9 invoice list / view / print / corrections + e2e → S10 invoice builder + e2e, closes M2). The owner's three M2 decisions (cancel with receipts refused; permissions; net edit of posted invoices) are in `docs/ROADMAP.md` → M2.
 
 ## Where to look for more detail
 
