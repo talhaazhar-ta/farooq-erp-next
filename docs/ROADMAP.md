@@ -18,14 +18,32 @@ Payments module (money in/out, the most rule-heavy legacy area) end to end.
 | **S4: search v2, statements, receipt model, company profile (server + shared)** | server-side payment search (port of module 38) + CSV, statement endpoints on the journal, receipt model, snapshots, `business` import, shared fold/date-parse/money/words helpers | search parity vs a JS reference; statements equal `LegacyLedger`; reconciliation still 0 differences |
 | **S5: Payments UI + statements screen + e2e** | list/filters, the 5 actions, receipt print, statement screen, Playwright e2e (split from the original S4 — too big for one session) | e2e green; screenshots reviewed; "not seen by a person" list in STATUS; M1 complete |
 
-## After M1 (not yet broken into sessions)
+## M2 — Invoices (current — planned 2026-09-24)
 
-Planned order, subject to change once M1's parity log shows which legacy areas actually moved the most while
-M1 was in flight:
+Sales invoices end to end: lines, stock quantities, posting, payment at the time of sale, edit/cancel/change shop, search, print, profit,
+screens. **Stock quantities (movements + levels) are pulled forward from M4** — an invoice cannot be correct without them; M4 keeps stock
+documents, stock value, average-cost maintenance and the COGS journal. Not used by staff; the live ERP stays the system of record.
 
-1. **M2 — Invoices** (sales documents, invoice search, draft-invoice uniqueness rule, change-shop)
-2. **M3 — Purchases** (purchase edit-only-adds rule, no cancel/delete, no change-supplier)
-3. **M4 — Stock / warehouses** (Inventory.apply, avgCostP vs carriedCost split, stock value, brand conversion)
+**Owner decisions (asked and answered 2026-09-24):**
+1. Cancelling an invoice that has money received against it is **refused until the receipts are reversed** (legacy silently left the shop in credit).
+2. Create / draft / post = `SALES_CREATE`; edit a posted invoice, cancel, change shop = `TRANSACTION_CORRECT`; payment at sale also needs `PAYMENT_CREATE`
+   (legacy enforced nothing but Change shop).
+3. Editing a posted invoice = **net correction** of stock and balance in one transaction, **refused once there is a return or a dispatch**; a posted
+   invoice never goes back to draft (legacy: full reverse + re-deduct, returns unprotected, "Save draft" un-posted it).
+
+| Session | Scope | Done when |
+|---|---|---|
+| **S6: invoice lines + stock quantities (data, import)** | migration (invoice lines, full header, `stock_movements`, `stock_levels`, product catalogue/prices), shared `invoiceTotals` (port of `Calc`), invoice posting builder in `ledger.ts`, importer + reconciliation of totals and stock | fixture + real backups: 0 balance / invoice-total / stock differences |
+| **S7: Invoices service + API** | draft (many), post (number, stock, cost snapshot, payment at sale, journal), edit posted (net), cancel, duplicate, change shop, verbatim validation, permissions, concurrency, ledger bridge | rule tests + 403s + bridge green; reconciliation 0 |
+| **S8: search, print model, profit, statement detail (server)** | port of module 33 + CSV, printed invoice model (classic template first), per-invoice profit (`PROFIT_VIEW`), statement description/Qty from module 24 | search parity vs JS reference; print/profit tests; reconciliation 0 |
+| **S9: invoice screens + e2e** | list, builder, view/print, corrections; Playwright; screenshots reviewed (may split into S9a/S9b) | e2e green; "not seen by a person" list; M2 complete |
+
+## After M2 (not yet broken into sessions)
+
+Planned order, subject to change once the parity log shows which legacy areas actually moved the most:
+
+2. **M3 — Purchases** (purchase edit-only-adds rule, no cancel/delete, no change-supplier; purchase lines + `PURCHASE_IN` on the M2 stock ledger)
+3. **M4 — Stock / warehouses** (stock documents receive/dispatch/transfer/adjust, avgCostP vs carriedCost maintenance, stock value, brand conversion, COGS journal — quantities already exist from M2)
 4. **M5 — Returns** (customer returns incl. REFUND-tied cash, supplier returns)
 5. **M6 — Landed cost**
 6. **M7 — Payroll** (staff pay never through Expenses; reverse-never-delete)
@@ -35,6 +53,6 @@ M1 was in flight:
 10. **Per-module cutover**, one at a time: freeze in the old ERP → final import → 0-diff reconciliation →
     staff switch → old module read-only.
 
-Each milestone above will get its own session breakdown (like M1's S1–S4) written just before it starts, based
+Each milestone above will get its own session breakdown (like M1's S1–S5) written just before it starts, based
 on `docs/STATUS.md` and `docs/PARITY.md` at that time — not written in advance, since the old ERP keeps
 changing underneath this plan.

@@ -20,26 +20,26 @@ for non-money modules, a person walked through it in headless Chrome and it matc
 | 02-services.js | Core business services (incl. Payments, Ledger) | **Ledger ported (S2)**; **Payments ported (S3)**, screens walked in headless Chrome (S5) — not *verified* (no person has used them, no reconciliation after real use); Returns operations not started | Ledger: `packages/import` (`LegacyLedger`) + `packages/db/src/ledger.ts` (shared posting builder); Payments: `apps/api/src/payments/` |
 | 03-docx.js | Document/Word export | not started | — |
 | 04-documents.js | Documents module | **payment receipt / voucher ported (S4 model, S5 print layout)** — `GET /payments/:id/receipt` → A4 print page, one page for every voucher in the e2e dataset; invoice / purchase print not started | `apps/api/src/statements/` (`loadReceipt`); `apps/web/src/routes/receipt.tsx` |
-| 05-ui-builder.js | UI builder helpers | not started | apps/web |
+| 05-ui-builder.js | UI builder helpers (incl. the invoice builder and invoice list screen) | not started | invoice builder + list M2 (S9) |
 | 06-wiring.js | Page wiring (partly superseded by 38) | **Payments panels ported (S5)** — Receive payment, Pay supplier, Pay a shop, Reverse, Edit amount; the rest of the wiring not started | `apps/web/src/components/payment-panels.tsx`, `correction-dialogs.tsx`; routing `apps/web/src/router.tsx` |
 | 07-transactions.js | Transaction posting | not started | apps/api (ledger, S1/S3) |
-| 08-classic-invoice.js | Classic invoice screen | not started | M2 |
+| 08-classic-invoice.js | Classic invoice print template (live setting `invoiceTemplate: classic`) | not started | M2: print model S8, print screen S9 |
 | 09-paperwork.js | Paperwork/printing | not started | — |
 | 10-mobile.js | Mobile layout, sidebar collapse | not started | apps/web layout |
 | 11-search.js | Generic search | `normalize` ported (S4) as `foldSearch` (JS) + `fold_search` (SQL, parity-proven for every code point); the command palette / fuzzy scoring not started | `packages/shared/src/fold.ts`; migration 0004 |
-| 12-invoice-editor.js | Invoice editor | not started | M2 |
+| 12-invoice-editor.js | "Edit before printing" (print-only overrides in `documentEdits`; creation is in 05/06) | not started — **deferred beyond M2** (store stays deferred) | later |
 | 13-reports.js | Reports engine | not started | — |
 | 14-reports-ui.js | Reports UI | not started | — |
 | 15-export-flow.js | Export flow | not started | — |
 | 16-khata.js | Khata (ledger book) view | ledger feed ported (S2); **statement API ported (S4)** — OPENING-first order, adjustments; **screen ported (S5)** | `packages/import`; `apps/api/src/statements/ledger.ts`; `apps/web/src/routes/statements.tsx` |
-| 17-profit.js | Profit/Profit.totals | not started | — |
+| 17-profit.js | Profit/Profit.totals | not started | per-invoice profit + price hints M2 (S8/S9); reports later |
 | 18-master-data.js | Areas/regions/master data (soft-delete pattern) | regions read-only list + customer lookup by region (S4); CRUD not started | `GET /regions`, `GET /customers?regionId` |
 | 19-collection-rbac.js | Roles & permissions | not started | packages/shared (S1) |
 | 20-integrity.js | Data integrity checks / migration path | not started | packages/import (S2) |
 | 21-settings.js | Settings incl. product prices panel, extra cost/bag | company profile imported verbatim + read-only display whitelist (S4, `GET /company`); editing not started | `packages/import`, `apps/api/src/statements/` |
 | 22-users.js | User/company accounts management | not started | apps/api auth (S1) |
 | 23-workbench.js | Workbench | not started | — |
-| 24-client-changes.js | Label overrides repainted every render | statement row *descriptions* (typed "Description / تفصیل", auto text, invoice-line summaries) deliberately **not** ported in S4 — see "Known gaps" below | — |
+| 24-client-changes.js | Label overrides repainted every render | statement row *descriptions* (typed "Description / تفصیل", auto text, invoice-line summaries) deliberately **not** ported in S4 — see "Known gaps" below | statement descriptions / Qty column M2 (S8) |
 | 25-options.js | Options | not started | — |
 | 26-landed-cost.js | Landed cost | not started | M6 |
 | 27-landed-ui.js | Landed cost UI | not started | M6 |
@@ -48,7 +48,7 @@ for non-money modules, a person walked through it in headless Chrome and it matc
 | 30-payroll.js | Payroll | not started | M7 |
 | 31-auth.js | Sign-in, sessions, heartbeat, lockout | not started | apps/api auth (S1) |
 | 32-milling.js | Milling / stock at mills | ledger feed ported (job issue/received/fee rows) and shown on the supplier statement (S4); rest not started | `packages/import`; rest M8 |
-| 33-invoice-search.js | Invoice search (day-first dates) | its reusable engine ported (S4): `parse` (typed dates), `norm`/`joinN`/`compact`/`hasTerm`/`dateText`, strict money parsing; the invoice search itself not started | `packages/shared` (`search-query.ts`, `fold.ts`); invoice search M2 |
+| 33-invoice-search.js | Invoice search (day-first dates) | its reusable engine ported (S4): `parse` (typed dates), `norm`/`joinN`/`compact`/`hasTerm`/`dateText`, strict money parsing; the invoice search itself not started | `packages/shared` (`search-query.ts`, `fold.ts`); invoice search M2 (S8 server, S9 screen) |
 | 34-accounts.js | Accounts | not started | — |
 | 35-topbar.js | Top bar (user/db chips, sign-out) | not started | apps/web shell (S1) |
 | 36-ui-kit.js | UI kit (Promise-based confirm/prompt/alert) | not started | apps/web (shadcn/ui) |
@@ -175,8 +175,21 @@ see `projectFarooqAndCoTraders/CLAUDE.md`), tracked here as they're picked up in
   **ported (S3)**, see "Payments rules ported in S3" below.
 - Purchase edit: money only ever added, line ids stable, stock guard on net change; no cancel/delete — not
   started (M3).
-- Change shop moves the shop only; needs TRANSACTION_CORRECT — not started (M2).
-- Only one draft invoice can exist (unique invoiceNumber, drafts save '') — not started (M2).
+- Change shop moves the shop and its wholly-applied receipts only; refused with a return or a split receipt; needs TRANSACTION_CORRECT — planned S7.
+- Only one draft invoice can exist (unique invoiceNumber, drafts save '') — **legacy bug, to be fixed** in S6 (partial unique index, drafts NULL).
+
+### M2 (Invoices) — owner decisions and legacy quirks to fix (planned 2026-09-24; each needs a test in S6/S7)
+
+Owner decisions: (1) cancel with a POSTED receipt allocated → refused until reversed (legacy left the shop in silent credit); (2) create/draft/post =
+`SALES_CREATE`, edit posted / cancel / change shop = `TRANSACTION_CORRECT`, payment at sale also `PAYMENT_CREATE` (legacy checked none but change shop);
+(3) edit posted = net correction, refused once a return or dispatch exists, never back to draft.
+
+Legacy quirks being fixed, not ported: one-draft limit; cancel restocks already-returned bags; edit regenerates line ids (breaks return links, allows
+returning the same bags twice); "Save draft" un-posts a posted invoice; edit's stock check ignores the invoice's own bags; per-line (not per-product)
+stock check; negative discounts/charges accepted; lowering "Paid" leaves allocations and the invoice disagreeing; editing a migrated invoice returns
+stock that was never taken; `SALES_CREATE` never enforced. Ported as-is: `Calc` totals, `previousBalance` frozen at first posting, number taken inside
+the posting transaction with the current year, receipt for the paid delta only, DR RECEIVABLES / CR SALES (no COGS until M4).
+Found in the live ERP too — reported to the owner 2026-09-24; not changed there.
 - Dates: local business date, never `toISOString()` — enforced as a project-wide rule, see `CLAUDE.md` rule 6.
 
 ## Change log (old-ERP changes since this project started)

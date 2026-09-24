@@ -149,8 +149,9 @@ and signs each role in once (storage states). Specs run one at a time, in file o
 
 ## Roadmap
 
-See `docs/ROADMAP.md` for the full milestone list. Current milestone: **M1 — Foundation + Payments**
-(S1 scaffold+DB+auth ✓ → S2 importer+reconciliation ✓ → S3 Payments service+API ✓ → S4 search/statement/receipt server side ✓ → S5 Payments UI + e2e ✓). **M1 is complete**; the next milestone (M2 — Invoices) has no session plan yet — write it first, from `docs/STATUS.md` and `docs/PARITY.md`.
+See `docs/ROADMAP.md` for the full milestone list. **M1 — Foundation + Payments is complete** (S1–S5).
+Current milestone: **M2 — Invoices** (S6 invoice lines + stock quantities → S7 Invoices service + API → S8 search/print/profit server side →
+S9 screens + e2e). The owner's three M2 decisions (cancel with receipts refused; permissions; net edit of posted invoices) are in `docs/ROADMAP.md` → M2.
 
 ## Where to look for more detail
 
