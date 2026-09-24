@@ -401,7 +401,7 @@ snapshots, search punctuation is a separator — see `docs/PARITY.md` "Search, s
 
 ## CI run
 
-**S8: see the run recorded below the S8 push (the first S8 push is the run described in Findings — it only looked green).**
+**S8: green** on commit `dbf8d0b`: [run 35988228177](https://github.com/talhaazhar-ta/farooq-erp-next/actions/runs/35988228177) — install, build, typecheck, lint, test (real Postgres service container: shared 151, web 62, import 221 + 1 skipped file, **api 499 passed + 4 skipped** — the 4 are `invoices-labels-verbatim`, which needs the old repo; the real-backup datasets are simply not defined without `data/`), Chromium, `pnpm e2e` (70) all passed — **and this time a failure would have failed the step** (see Findings: the first S8 push, `f9431af`, [run 35984948710](https://github.com/talhaazhar-ta/farooq-erp-next/actions/runs/35984948710), showed 21 failed API tests in its log and still concluded "success" — that run is not a green run).
 
 Earlier — **S7: green** on commit `fd7bafa`: [run 35976238407](https://github.com/talhaazhar-ta/farooq-erp-next/actions/runs/35976238407) — install, build, typecheck, lint, test (real Postgres service container; the 2 real-backup tests skip), Chromium, `pnpm e2e` (70) all passed.
 
