@@ -156,7 +156,7 @@ snapshots, search punctuation is a separator — see `docs/PARITY.md` "Search, s
 
 ## CI run
 
-See the last line of this section (filled in after the push).
+**Green** on the S5 commit `45fc437`: [run 35952737035](https://github.com/talhaazhar-ta/farooq-erp-next/actions/runs/35952737035) — install, build, typecheck, lint, test (541 tests, real Postgres service container via `EXTERNAL_TEST_DATABASE_URL`), Chromium install, **`pnpm e2e` (70 Playwright tests on ubuntu-latest, same container)** and the artifact upload all passed. The real-backup datasets are skipped in CI (the file is gitignored); the e2e dataset is synthetic.
 
 ## Next step
 
