@@ -51,7 +51,7 @@ From the repo root: `pnpm install && pnpm build && pnpm typecheck && pnpm lint &
   - `payments-search-parity`: `GET /payments` vs `helpers/legacy-payment-search.ts` (a literal port of legacy `build` + `matcher` + `sortList` with its own copy of `normalize` / `parse`; imports nothing from the code under test) —
     same ids, same order, same total, same facets, same reading of the box — for a query table built from the data of each dataset (**fixture; a seeded ~300-payment synthetic backup; the real backup when the file is on the machine**, ~60 queries each) plus offset/limit stitching.
   - `statements-proof`: every customer and supplier, full range + mid-range `from`/`to` + `from`-only + `to`-only, vs `LegacyLedger` (fixture 6 + 5 parties; real backup 409 + 35).
-- **CI:** to be recorded below after the push (see "CI run").
+- **CI:** green on both database paths — see "CI run" below.
 - **Mutation checks** (broke a rule on purpose, confirmed tests go red, restored; the tree was rebuilt and the full suite re-run green after). All were caught:
   search phrase-with-spaces-removed rule (first attempt was **not** caught — a real gap in my query table, fixed with hyphenated phrase cases); tie-break on receipt number; party's *current* text not searched;
   reversed voucher also counted in its kind's facet; typed date not replacing from/to; From > To accepted; statement showing reversed vouchers; customer OPENING no longer first; entry time ignored; supplier sign swapped;
@@ -178,7 +178,7 @@ Owner-visible behaviour changes are marked **(owner)**.
 
 ## CI run
 
-(see the last line of this section, added after the push)
+**Green** on the S4 commit `1568eb8`: [run 35939340292](https://github.com/talhaazhar-ta/farooq-erp-next/actions/runs/35939340292) — install, build, typecheck, lint and test (against the real Postgres service container via `EXTERNAL_TEST_DATABASE_URL`, a different locale from the embedded C-locale cluster) all passed. So both database paths run all 479 tests, including the every-code-point `fold_search` parity. The real-backup datasets are skipped in CI (the file is gitignored), so CI runs the fixture and the 300-payment synthetic sets.
 
 ## Next step — S5: Payments UI, statements, receipt print + browser tests (`docs/sessions/S5.md`, corrected to the real API)
 
