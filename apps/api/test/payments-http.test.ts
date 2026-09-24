@@ -239,15 +239,21 @@ describe("reads", () => {
       expect((await list(`partyId=${shop.id}&from=2026-02-11`)).items.map((i) => i.id)).toEqual([ids.ref1]);
     });
 
-    it("q: receipt number, party name and reference, case-insensitive; wildcards match literally", async () => {
+    it("q: receipt number, party name and reference, case-insensitive; punctuation is a separator, never a wildcard (S4: legacy folding replaced S3's LIKE)", async () => {
       const tag = (globalThis as any).__tag as string;
       const byReceipt = await h.request(owner, "GET", `/payments/${ids.out1}`);
       const receipt = byReceipt.body.receiptNumber as string;
       expect((await list(`q=${receipt.toLowerCase()}`)).items.map((i) => i.id)).toEqual([ids.out1]);
       expect((await list(`q=${tag.toUpperCase()}%20SUPPLY`)).items.map((i) => i.id)).toEqual([ids.out1]); // supplier name
       expect((await list(`q=${tag}-REF-a`)).items.map((i) => i.id)).toEqual([ids.in1]); // reference
-      expect((await list(`q=${encodeURIComponent(`${tag} 50%_`)}`)).total).toBe(3); // the shop's name contains a literal 50%_
-      expect((await list(`q=${encodeURIComponent(`${tag} 5_%`)}`)).total).toBe(0); // "_" and "%" are not wildcards
+      // the shop is named "<tag> 50%_Shop": folded, its words are "<tag>", "50" and "shop". The words are ANDed, so the shop's three
+      // vouchers are found (the supplier's voucher may join them when "50" happens to sit in its amount / date / tag: that is search).
+      const mine = [ids.in1, ids.in2, ids.ref1];
+      expect((await list(`q=${encodeURIComponent(`${tag} 50%_`)}`)).items.map((i) => i.id)).toEqual(expect.arrayContaining(mine));
+      // "%" and "_" fold to nothing: "5_%" is just the word "5", found inside "50" — it is NOT a LIKE pattern
+      expect((await list(`q=${encodeURIComponent(`${tag} 5_%`)}`)).items.map((i) => i.id)).toEqual(expect.arrayContaining(mine));
+      // and a "%" does not stand for "anything": the word "qqxx" is in no field
+      expect((await list(`q=${encodeURIComponent(`${tag} qqxx%`)}`)).total).toBe(0);
     });
 
     it("rejects unknown or malformed query parameters (422)", async () => {

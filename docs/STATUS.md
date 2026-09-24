@@ -1,203 +1,187 @@
 # Status
 
-**Last updated:** 2026-09-24, by the S3 session (Payments service + API).
+**Last updated:** 2026-09-24, by the S4 session (payments search v2, statements, receipt model, company profile — server + shared).
 
 ## Current state
 
-S1 (scaffold, DB, auth), S2 (importer + reconciliation) and **S3 (Payments service + API)** are done. `apps/api` now has a
-`PaymentsService` with **receive / pay / refund / reverse / editAmount**, each in one database transaction, each enforcing the
-legacy rules on the server (plus a few deliberately stricter ones — listed below), each posting a journal entry and an audit row.
-The read API S4 needs (list/detail, picker lookups, journal-derived balances, outstanding invoices/purchases) is in place.
-**No UI** (that is S4). Nothing is deployed; the live ERP is untouched.
+S1 (scaffold, DB, auth), S2 (importer + reconciliation), S3 (Payments service + API) and **S4 (everything the Payments screens need from the
+server)** are done. `apps/api` now serves, besides S3's write API:
 
-The proof, in one line: the ledger-bridge test imports the synthetic fixture, runs the service, mirrors every operation by hand on
-the legacy JSON, and the old algorithm's balance equals the new journal's for **every** party; the importer + reconciliation on the
-fixture and on the real 2026-09-22 nightly still show **0 differences** (409 customers, 35 suppliers).
+- **`GET /payments` v2** — the legacy module-38 search on the server (words AND any order, Urdu letter folding, typed dates as a filter, scopes, kinds,
+  method / region / date / amount filters, four sorts, paging), and it **says how it read the box** (`interpreted`), what can never match (`problems`), and
+  the tab counts (`facets`). Plus **`GET /payments/export.csv`**.
+- **`GET /customers/:id/statement`, `GET /suppliers/:id/statement`** — built from the journal; **`GET /payments/:id/receipt`** — the printed receipt / voucher model.
+- **`GET /company`** (whitelisted display fields only), **`GET /regions`**, and `GET /customers?regionId=`.
+- `packages/shared`: `foldSearch`, `parseSearchQuery`, `parseRupees` / `formatPaisa` / `amountInWords`, and the Zod schemas for every response S5 needs.
+
+**No UI** (that is S5). Nothing is deployed; the live ERP is untouched.
+
+The proof, in three lines: (1) `GET /payments` returns the **same ids in the same order** as a literal port of the legacy algorithm on three datasets
+(fixture, a deterministic 300-payment synthetic backup, the real backup); (2) every customer's and supplier's **statement equals `LegacyLedger`** (closing balance
+and every row, full range and windows) on the fixture and on the real backup (409 + 35 parties); (3) the importer + reconciliation still show **0 differences**
+(409 customers / 35 suppliers on the real 2026-09-22 nightly).
 
 ### Repo layout (as built)
 
 ```
-apps/api         NestJS 11 + Fastify: auth/session/CSRF/roles (S1); src/payments/ (S3)
-apps/web         React 19 + Vite shell (S1). No business screens yet.
-packages/shared  Permissions/roles, Zod schemas (auth + payments), business-date helpers. Built to dist/.
-packages/db      Drizzle schema, migrations 0000-0003, client, test harness, and ledger.ts (the shared posting builder). Built to dist/.
-packages/import  classification, LegacyLedger, prepare, load, reconcile, CLI, fixtures, tests.
+apps/api         NestJS 11 + Fastify: auth (S1); src/payments/ (S3 write side, S4 search + CSV); src/statements/ (S4: statements, receipt, company, regions)
+apps/web         React 19 + Vite shell (S1). No business screens yet (S5).
+packages/shared  Permissions, Zod schemas (auth, payments, statements), business-date helpers, and (S4) fold / search-query / money. Built to dist/.
+packages/db      Drizzle schema, migrations 0000-0004, client, test harness, ledger.ts (shared posting builder). Built to dist/.
+packages/import  classification, LegacyLedger, prepare, load, reconcile, company (credential guard), CLI, fixtures, tests.
 ```
 
 ## Verification
 
 From the repo root: `pnpm install && pnpm build && pnpm typecheck && pnpm lint && pnpm test`.
 
-- `pnpm build` / `typecheck` / `lint`: all clean, 0 warnings (`--max-warnings=0`). `apps/api`'s typecheck now also covers `test/`
-  (`tsconfig.test.json`).
-- `pnpm test`: **245 tests, all passing** (was 101). Per file:
+- `pnpm build` / `typecheck` / `lint`: all clean, 0 warnings.
+- `pnpm test`: **479 tests, all passing** (was 245). Per file:
 
   | package | file | tests |
   |---|---|---|
-  | `packages/shared` | `permissions.test.ts` 9 (was 4), `dates.test.ts` 20 (new) | 29 |
-  | `packages/import` | `import-fixture` 21, `fail-loudly` 32, `classification-and-cli` 9, `safety-net` 5, `legacy-ledger` 17, `idempotency-and-guards` 4 | **88** (was 86; the 86 are unchanged) |
-  | `apps/api` | `payments-http` 25, `payments-reverse-edit` 22, `payments-concurrency` 18, `payments-receive` 18, `payments-units` 13, `payments-ledger-bridge` 9, `payments-pay-refund` 8, `permission-guard` 9 (was 5), `auth.e2e` 4, `balance-trigger` 2 | **128** (was 11) |
+  | `packages/shared` | `permissions` 9, `dates` 20, **`fold` 13, `search-query` 16, `money` 40** | 98 (was 29) |
+  | `packages/import` | `import-fixture` 21, `fail-loudly` 32, **`company-and-snapshots` 23**, `classification-and-cli` 10, `safety-net` 5, `legacy-ledger` 17, `idempotency-and-guards` 4 | **112** (was 88) |
+  | `apps/api` | **`fold-search-parity` 35, `payments-search-parity` 12, `statements-proof` 6, `statements-rules` 19, `receipt` 21, `payments-csv` 20, `s4-reads` 18, `s4-permissions` 10**; S3's `payments-http` 25, `payments-reverse-edit` 22, `payments-concurrency` 18, `payments-receive` 18, `payments-ledger-bridge` 9, `payments-pay-refund` 8, `permission-guard` 9, `auth.e2e` 4, `payments-units` 13, `balance-trigger` 2 | **269** (was 128) |
 
-- **CI:** **green** on the S3 commit `d75c908`: [run 35906891970](https://github.com/talhaazhar-ta/farooq-erp-next/actions/runs/35906891970) — install, build, typecheck, lint and test (against the real Postgres service container via `EXTERNAL_TEST_DATABASE_URL`) all passed. So both database paths (embedded locally, real Postgres 17 in CI) run all 245 tests.
-- **Mutation checks** (broke a rule on purpose, confirmed tests go red, restored): SALES granted `PAYMENT_PAYOUT` (2 red); explicit-allocation
-  cap removed (2); `editAmount` not rewriting the journal (5); `reverse` posting no reversal entry (8); auto-allocation newest-first (1);
-  return credit ignored in outstanding (2); reversed payments still counted as paid (1); receipt-number year taken from UTC (1); double
-  reverse allowed (2); `editAmount` ignoring the `refund_payment_id` FK (1). The tree was restored and re-run green after.
-- **Real server smoke** (built `node dist/main.js` against the local dev DB loaded with the real 2026-09-22 backup, curl with a real session
-  + CSRF token): receive Rs 1,000 to the shop "Israr chitral" → `REC-2026-000003` (the live counter was at 2, so the series continued),
-  auto-allocated to its oldest invoice `INV-2026-000007`, balance 9,600,000 → 9,500,000 paisa; same idempotency key again → HTTP 200 and the
-  same voucher; reverse → REVERSED and the balance back to exactly 9,600,000; second reverse → 422 `This voucher is already reversed.`;
-  missing CSRF header → 401; unauthenticated → 401. Then the real backup was re-imported over it (dev DB is a throwaway, gitignored).
+- **The named parity / proof tests**
+  - `fold-search-parity`: `fold_search` (SQL) ≡ `foldSearch` (JS) for **every Unicode scalar value U+0001-U+10FFFF** in the C-locale UTF-8 test cluster, a 30-string
+    corpus (Urdu variants, diacritics, digits, punctuation, mixed scripts, empty / NULL), and `search_join` / `search_compact` / `search_amount_text` / `search_date_text` vs the
+    legacy index forms.
+  - `payments-search-parity`: `GET /payments` vs `helpers/legacy-payment-search.ts` (a literal port of legacy `build` + `matcher` + `sortList` with its own copy of `normalize` / `parse`; imports nothing from the code under test) —
+    same ids, same order, same total, same facets, same reading of the box — for a query table built from the data of each dataset (**fixture; a seeded ~300-payment synthetic backup; the real backup when the file is on the machine**, ~60 queries each) plus offset/limit stitching.
+  - `statements-proof`: every customer and supplier, full range + mid-range `from`/`to` + `from`-only + `to`-only, vs `LegacyLedger` (fixture 6 + 5 parties; real backup 409 + 35).
+- **CI:** to be recorded below after the push (see "CI run").
+- **Mutation checks** (broke a rule on purpose, confirmed tests go red, restored; the tree was rebuilt and the full suite re-run green after). All were caught:
+  search phrase-with-spaces-removed rule (first attempt was **not** caught — a real gap in my query table, fixed with hyphenated phrase cases); tie-break on receipt number; party's *current* text not searched;
+  reversed voucher also counted in its kind's facet; typed date not replacing from/to; From > To accepted; statement showing reversed vouchers; customer OPENING no longer first; entry time ignored; supplier sign swapped;
+  window opening ignoring rows before `from`; method dropped from descriptions; receipt "previous balance" = current balance (the legacy bug); receipt printing the current name; snapshots not taken;
+  CSV injection guard removed; CSV BOM dropped; CSV exporting one page; company returning the whole settings bag; SQL fold with a letter variant unfolded / ASCII path not lower-casing / paisa amount forms missing;
+  importer: credential guard removed, booleans treated as secrets, snapshots unmapped, `business` not loaded.
+  One mutation ("reversed voucher still gets balances") is an *equivalent mutant*: a reversed voucher's ledger row is omitted, so the code path cannot be observed.
+- **Importer + reconciliation regression** (`pnpm --filter @farooq/import run import <file>` on the migrated local dev DB, exit code 0 both times):
 
-### Importer regression after S3's changes (the definition of "correct")
+  | | fixture (synthetic) | real backup `data/business-20260922-210002-v505-6a81.json` |
+  |---|---|---|
+  | customers / suppliers reconciled | 6 / 5, **0 differences** | **409 / 35, 0 differences** |
+  | receivables old = new | 2,935,000 | 92,390,000 |
+  | payables old = new (net) | 1,312,000 | 604,000,000 |
+  | journal / trial balance | 35 entries, 70 lines, 9,305,000 = 9,305,000 BALANCED | 24 entries, 48 lines, 1,146,390,000 = 1,146,390,000 BALANCED |
+  | rows loaded | as before + `company_profile` 1 | as before + `company_profile` 1 (`business` 1 loaded ✓) |
 
-Run with `pnpm --filter @farooq/import run import <file>` on the migrated local dev DB (exit code 0 both times):
+  Identical to S2/S3's numbers. **Caveat carried from S2:** the real backup has 7 payments, 0 returns, 0 adjustments, 0 milling jobs, 0 reversed payments — reversal / return / adjustment / milling branches are proven by the fixture and the tests, not by real data.
+- **Real server smoke** (built `node dist/main.js` against the dev DB loaded with the real backup, curl with a real session; no real figures recorded here): an Urdu-word search found the vouchers of that region by their printed region;
+  a date typed in Urdu digits was read as "21 Sep 2026 (day / month / year)"; `export.csv` = 200, `text/csv; charset=utf-8`, `attachment; filename="farooq-co-payments-2026-09-24.csv"`, starts `EF BB BF`; a receipt came back as
+  "PAYMENT VOUCHER / PAID TO" with amount in words, balances before / after and the company block; a shop's statement closed at exactly its balance endpoint; `/company` = 21 keys; no session = 401.
 
-| | fixture (synthetic) | real backup `data/business-20260922-210002-v505-6a81.json` |
+## What S4 built
+
+### Endpoints (Zod schemas in `@farooq/shared`; S5 imports the same types)
+
+S3's write endpoints, `GET /payments/:id`, `GET /customers|suppliers/:id/balance`, `.../outstanding-invoices|purchases` are unchanged (see the S3 table below). New / changed:
+
+| Method + path | Permission | Request → response |
 |---|---|---|
-| customers / suppliers reconciled | 6 / 5, **0 differences** | **409 / 35, 0 differences** |
-| receivables old = new | 2,935,000 | 92,390,000 |
-| payables old = new (net) | 1,312,000 | 604,000,000 |
-| journal / trial balance | 35 entries, 70 lines, 9,305,000 = 9,305,000 BALANCED | 24 entries, 48 lines, 1,146,390,000 = 1,146,390,000 BALANCED |
-| rows loaded | as before (returns 7) | as before (returns 0) |
+| `GET /payments?q&scope&direction&partyType&partyId&status&method&regionId&from&to&minP&maxP&sort&limit&offset` | any of `PAYMENT_CREATE`, `COLLECTION_VIEW`, `FINANCIAL_REPORT_VIEW` | `listPaymentsQuerySchema` → `paymentListResponseSchema`: `items` (each `paymentListItemSchema`: voucher + `kind`, snapshots, `appliedTo[]`, `regionId/regionName`), `total` (all filters), `limit`, `offset`, **`interpreted`** `{terms, dates[{label,from,to,src,dayFirst}], dateFilterReplaced, problems[]}`, **`facets`** `{received, paidToShops, paidToSuppliers, reversed}` each `{count,totalP}`, **`onFile`** |
+| `GET /payments/export.csv?<same filters, no paging>` | same any-of | `exportPaymentsQuerySchema` → the file |
+| `GET /payments/:id/receipt` | same any-of | `receiptSchema` (+ `RECEIPT_LABELS`, the legacy wording verbatim) |
+| `GET /customers/:id/statement?from&to`, `GET /suppliers/:id/statement?from&to` | same any-of | `statementQuerySchema` → `statementSchema` |
+| `GET /company` | `MASTER_DATA_VIEW` (every role) | `companyProfileSchema` (21 display fields, `COMPANY_DISPLAY_FIELDS`) |
+| `GET /regions` | `MASTER_DATA_VIEW` | `regionSchema[]` |
+| `GET /customers?q&limit&regionId`, `GET /suppliers` | `MASTER_DATA_VIEW` | `partyLookupItemSchema[]` now with `regionId` (suppliers: always null; `regionId` filter on suppliers → `[]`) |
 
-Identical to S2's numbers, so the migration, the shared posting builder and the new `returns.invoice_id` / `payments.reversed_at` mapping
-changed nothing about balances. **Caveat carried from S2:** the real backup has 0 returns, 0 adjustments, 0 milling jobs, 0 reversed
-payments, so the return-credit / reversal branches are proven only by the fixture and the tests, not by real data.
+Query rules: blank strings (untouched form fields) are "not set"; unknown parameters / bad enum / bad uuid / bad date / `limit` > 200 are **422 `{message, errors}`**; `minP` / `maxP` are integer **paisa**
+(S5 converts with `parseRupees`). `direction` accepts `all | received | paidToShops | paidToSuppliers` **and** S3's `IN | OUT`. Period presets ("This week"…) are S5's: compute from `businessDateOf` and send `from` / `to`.
+Facets ignore `direction` / `status` (so tabs keep their numbers) but obey every other filter and the words. `q` is the raw box (max 200 chars); the server parses it — do **not** parse dates client-side.
+A statement's `from > to` is 422 "The “From” date is after the “To” date."
 
-## What S3 built
+- **Files:** `packages/shared/src/{fold,search-query,money}.ts`, `schemas/statements.ts`; `packages/db/migrations/0004_s4_search_receipt.sql`; `apps/api/src/payments/{payments.search,payments.csv}.ts`,
+  `apps/api/src/statements/{ledger,statements.queries,statements.controller,statements.module}.ts`; `packages/import/src/company.ts`; `packages/shared/scripts/generate-fold-sql.mjs`.
+- **Migration 0004** (0000-0003 untouched): `payments.party_name_snapshot / party_owner_snapshot / region_snapshot`; `company_profile(id, doc jsonb, updated_at)`; the SQL functions `fold_search`,
+  `search_join` (2/3/4/5/7/8 args), `search_compact`, `search_amount_text`, `search_date_text`; and **`GENERATED ALWAYS AS (…) STORED` search columns** on `payments` (`search_number/party/reference/amount/date/other`),
+  `invoices` / `purchases` (`search_number`), `customers` / `suppliers` / `regions` (`search_text`). The database keeps the folded text itself — no triggers, never stale, never written by the app — so a search folds nothing per voucher.
+  Statement / receipt queries read the existing journal, no new index was needed at this size.
+- **`fold_search` has three tiers** (pure ASCII / ASCII + the Arabic block / everything else) that are each exactly the JS function; it spells out the classification as explicit code-point ranges because Postgres' `[[:alpha:]]`
+  follows the DB locale and treats all of Urdu as punctuation in the C locale. It is **generated** from the JS tables. If a Node upgrade brings a newer Unicode table `fold-search-parity` goes red naming the code points:
+  re-run `node packages/shared/scripts/generate-fold-sql.mjs` (after `pnpm build`) and put the output in a **new** migration.
+- **Importer:** payment snapshots are `mapped`; `business` moves from *deferred* to *imported verbatim* into `company_profile` (a settings bag the app reads whole: no field list, so a new setting added in the old ERP does not abort the import).
+  **Credential guard** (`packages/import/src/company.ts`): a setting whose *name* is credential-looking (word-wise: pass/password/secret/token/apikey/pin/salt/hash…, camel/snake/kebab, any depth) **and whose value is a real value** aborts the import naming the key.
+- **Fixture change:** `build-fixture.ts` now gives each payment its snapshots and the `business` document a realistic (fabricated) key set incl. the boolean `requirePinOnSwitch`; `synthetic-backup.json` regenerated (no balance changed).
 
-### Endpoints (all in `apps/api/src/payments/`; Zod schemas in `@farooq/shared`, import the same types in S4)
+### Decisions as made (the plan's, recorded)
 
-| Method + path | Permission | Request schema → response |
-|---|---|---|
-| `POST /payments/receive` | `PAYMENT_CREATE` | `receivePaymentSchema` → `paymentDetailSchema` (201; **200** if the `idempotencyKey` was already used) |
-| `POST /payments/pay` | `PAYMENT_PAYOUT` | `payPaymentSchema` → `paymentDetailSchema` |
-| `POST /payments/refund` | `PAYMENT_PAYOUT` | `refundPaymentSchema` → `paymentDetailSchema` |
-| `POST /payments/:id/reverse` | `TRANSACTION_CORRECT` | `reversePaymentSchema` → `paymentDetailSchema` (200) |
-| `POST /payments/:id/edit-amount` | `TRANSACTION_CORRECT` | `editPaymentAmountSchema` → `paymentDetailSchema` (200) |
-| `GET /payments?q&direction&partyType&partyId&status&from&to&limit&offset` | any of `PAYMENT_CREATE`, `COLLECTION_VIEW`, `FINANCIAL_REPORT_VIEW` | `listPaymentsQuerySchema` → `paymentListResponseSchema` (`items`, `total`, `limit`, `offset`) |
-| `GET /payments/:id` | same any-of | `paymentDetailSchema`: the voucher, its `allocations` (with invoice/purchase numbers) and `actions: { reverse, editAmount }`, each `{ allowed, reason }` — the reason is the wording the write endpoint would return, so S4 needn't re-implement the rules |
-| `GET /customers/:id/balance`, `GET /suppliers/:id/balance` | same any-of | `partyBalanceSchema` (`balanceP` from the journal; + = shop owes us / we owe the supplier) |
-| `GET /customers/:id/outstanding-invoices`, `GET /suppliers/:id/outstanding-purchases` | same any-of | `outstandingDocumentSchema[]`, oldest first, outstanding > 0 only |
-| `GET /customers?q&limit`, `GET /suppliers?q&limit` | `MASTER_DATA_VIEW` | `partyLookupQuerySchema` → `partyLookupItemSchema[]` |
+1. **Statement order:** business date → `journal_entries.created_at` → entry id; a customer's OPENING row first whatever its date; **a supplier's OPENING first within its own date** (my addition: the legacy gave it no `createdAt`, so it led its day; using the journal's import-time `created_at` would have put it last). The legacy artefact "rows without createdAt (refunds, supplier payments, returns) sort before same-day invoices" is **not** copied. Closing and end-of-day balances are identical; only running balances between same-day rows can differ.
+2. **Reversed vouchers** (payments and adjustments; original + reversal entry) are omitted; `omittedReversed` counts those dated inside the window. An edited voucher is one row at its current amount.
+3. **Receipt balances** = the party's running balance immediately before / after that voucher's row in the statement order — deterministic (a reprint next month shows the same figures). Legacy: a stale stored `balanceBefore` and the *current* balance. A reversed voucher's receipt: `cancelled`, `previousBalanceP` / `remainingBalanceP` null, `reversal {reason, at}`.
+4. **Snapshots:** vouchers keep name / owner / region as printed (`"اردو — English"` for the region, supplier owner = its contact person `cp`); receipts print them; search matches them **and** the party's current text (name, owner, Urdu name, phone + compact, WhatsApp, code, region).
+5. **No Postgres extensions.** 6. **Strict money entry** (`parseRupees`: >2 decimals refused, no floats). 7. **Amount in words says the paisa.** 8. **Search is server-side.**
 
-Other exports S4 should use: `PAYMENT_MESSAGES`, `MAX_AMOUNT_P`, `businessRuleErrorSchema`, `businessDateOf` / `isValidBusinessDate`
-(`Asia/Karachi` business dates — use `businessDateOf(new Date())`, never `toISOString()`), `roleHasAnyPermission`.
-
-- **Errors:** business-rule refusals and validation failures are **HTTP 422 `{ message, errors: string[] }`** (`message` = first error);
-  unknown payment/party → 404 in the same shape; 401 (no session / bad CSRF) and 403 (role lacks the permission) come from the guards.
-  Every request object is `.strict()` — an unknown field is a 422, not ignored. Money is integer paisa (`amountP`), dates `YYYY-MM-DD`,
-  omitted `date` = today in Karachi. Legacy wording is verbatim (`Enter an amount greater than zero.`, `Choose a shop.`,
-  `Choose a supplier.`, `Payment not found.`, and the `editAmount` refusals).
-- **S4 should send an `idempotencyKey`** (e.g. `crypto.randomUUID()` generated when the form opens) on receive/pay/refund so a
-  double-click or retry returns the first voucher. It is optional server-side.
-- **Files:** `payments.service.ts` (the five operations), `payments.queries.ts` (reads), `outstanding.ts` (paid/outstanding/status,
-  locking), `rules.ts` (`editAmountRefusal`), `numbering.ts` (`nextNumber`), `clock.ts` (injectable clock), `errors.ts`,
-  `*.controller.ts`. `packages/db/src/ledger.ts` is the **one** place the payment posting shapes live (importer and service both use it).
-- **Permissions:** new `PAYMENT_PAYOUT` in `@farooq/shared` (OWNER implicit, MANAGER, ACCOUNTANT; **not SALES/INVENTORY**);
-  `RequireAnyPermission(...)` decorator + guard support for the any-of reads. Nothing reads the `role_permissions` table at runtime
-  (the guard uses the in-code map), so an already-seeded dev DB needs no re-seed for the new permission.
-- **Migration `0003_s3_payments_service`** (0000-0002 untouched): `returns.invoice_id` (FK, indexed), `payments.created_by / reversed_at /
-  reversed_by / reverse_reason / idempotency_key (unique)`, indexes for the list screen and the outstanding queries (`payments_list_idx`,
-  `payment_allocations(invoice_id|purchase_id)`, `invoices(customer_id)`, `purchases(supplier_id)`, `journal_lines(party_type, party_id)`).
-- **Importer follow-through:** `customerReturns.invoiceId` is now `mapped` (a dangling invoice id aborts the import, like every other
-  reference; blank = a return with no invoice); `payments.reverseReason` is `mapped` and `reversed_at`/`reverse_reason` are filled for
-  REVERSED vouchers; the schema guard now checks for the 0003 column. Its 86 existing tests are unchanged and green; 2 added.
-- **Fixture change:** the four customer returns used to all point at `inv-8` whatever the shop; each now links to its own shop's invoice
-  (`build-fixture.ts` header lists the hand-computed outstanding of every invoice/purchase). No balance changed.
-
-### Rules as implemented (see `docs/PARITY.md` for the rule → test table)
-
-- **receive:** shop must exist. No `allocations` → oldest invoice first (business date → `created_at` → invoice number → id) over the
-  shop's non-DRAFT/CANCELLED invoices with outstanding > 0, candidates locked `FOR UPDATE` in id order first; excess stays an unallocated
-  advance (`unallocatedP`), and still credits the ledger. Explicit `allocations` are validated (below). Invoice `status` is refreshed
-  like `refreshPaymentState`: from allocations of POSTED payments only, returns credit not subtracted; CANCELLED / DRAFT / RETURNED /
-  PARTIALLY_RETURNED untouched; DISPATCHED and the rest are overwritten as in the legacy.
-- **pay:** supplier must exist; optional purchase allocations with the same guards; `purchases.status` never touched (M3).
-- **refund:** OUT to a customer, `is_refund = true`, no allocations.
-- **reverse:** locks the voucher; refuses not-found (404) and already-REVERSED; reason required; sets REVERSED + `reversed_at/by/reverse_reason`;
-  posts the mirror entry `PAYMENT_REVERSAL` (same `source_id`) **dated as the original payment**; keeps allocation rows; refreshes invoice statuses.
-- **editAmount:** the legacy refusals in the legacy order/wording (not found / reversed / not OUT-to-shop-or-supplier / has allocation /
-  REFUND-return tied — by the FK **or** the note+reference heuristic), then amount > 0 and different from the current one; updates
-  `amount_p` in place **and rewrites that voucher's single journal entry** in the same transaction.
-- **Numbering:** `REC` (IN) / `PV` (OUT), `<KIND>-<current Karachi year>-<6 digits>`, `INSERT … ON CONFLICT DO UPDATE SET n = n + 1 RETURNING n`
-  inside the voucher's transaction: atomic under concurrency, gap-free, a rolled-back save does not consume a number.
-- **Audit:** `Payment received`, `Refund paid to shop`, `Payment made to supplier`, `Payment reversed`, `Payment amount corrected`
-  (`entity = 'Payment'`, actor = the session user, before/after snapshots + reason).
-- **Journal:** every posted voucher has exactly one entry by `(source_type, source_id)` = `('PAYMENT', id)`, plus `('PAYMENT_REVERSAL', id)`
-  after a reversal; `journal_entries.created_by` = the session user; the S1 trigger still refuses an unbalanced entry (tested through the repository).
-
-## Deviations from the S3 plan, and where this is stricter than / different from the legacy
+## Deviations from the S4 plan / from the legacy
 
 Owner-visible behaviour changes are marked **(owner)**.
 
-1. **(owner) `PAYMENT_PAYOUT`** gates pay and refund; SALES (which had `PAYMENT_CREATE`) can receive but not pay out. Legacy open item 7.
-   To restore the old behaviour, add `"PAYMENT_PAYOUT"` to SALES in `packages/shared/src/permissions.ts` (one line; the matrix test will say so).
-2. **(owner) Explicit allocations are capped on the server** (legacy trusted the UI): must exist, belong to this shop/supplier, not be
-   DRAFT/CANCELLED (CANCELLED for purchases), appear once, be ≤ that document's outstanding; Σ ≤ the amount. All errors are reported together.
-3. **(owner) A second reverse is refused** (legacy reversed again).
-4. **Reverse keeps the allocation rows** (legacy deleted them). So after a reversal the reconciliation's `paymentAllocations` count differs
-   from a legacy-shaped backup by design (the bridge test asserts exactly that one difference and nothing else).
-5. **Idempotency key** (new): per-request advisory lock + unique index; same key ⇒ first voucher returned, HTTP 200. A refused request does
-   not claim its key. The key is not bound to the payload or the user: reuse with a *different* body silently returns the first voucher.
-6. **editAmount = in-place rewrite of the one entry** (as the plan said), not a compensating delta entry. Trade-off: the journal alone no
-   longer shows the old figure (statements stay one row per voucher); the `audit_log` before/after rows are the trail.
-7. **Reversal date decided for new activity too:** the reversing entry carries the original payment's date, so the pair cancels at every
-   date. **No period locking** (the legacy has none either), so reversing a voucher from a closed month is allowed.
-8. **Reversing the refund voucher of a customer return is allowed** (legacy allows it); the return still says REFUND afterwards — a known wart until the return is editable (M5).
-9. **Read endpoints:** the picker lookups (`GET /customers`, `GET /suppliers`) require `MASTER_DATA_VIEW` as the plan said, which every role
-   holds — **including INVENTORY**, who can therefore list shop/supplier names and phones. The payment/balance/outstanding reads refuse INVENTORY (403).
-   **(owner)** if the warehouse role must not see the customer list, that is a one-line change (use the any-of guard there).
-10. `receivedBy` = the session user's display name (legacy stored `currentUser()`), `created_by` = their id. Legacy `balanceBefore/After`
-    is not ported (derived data). Default `method` is `Cash`. `receiptPrefix` is hard-coded `REC` (no settings module yet).
-11. Validation failures (Zod) are also HTTP 422 `{ message, errors }`, not 400, so the UI has one error shape.
-12. `POST /payments/:id/reverse` and `/edit-amount` answer **200** (they act on an existing voucher); the three creates answer 201 (200 on replay).
+1. **Credential guard is name *and* value aware, not `/pass|secret|token|api.?key|pin/i` on the key.** The real backup's `business` document contains `requirePinOnSwitch: false` (a switch), which that regex would have made fail the real import.
+   Booleans / null / "" under a credential-looking name pass; strings, numbers (a PIN can be numeric) and nested values abort. Word-wise, so `shipping` / `mapping` are not "pin".
+2. **Generated stored columns** instead of folding at query time (my first version folded every field per request: ~1 s for a 300-payment text search, unacceptable at real volume). Query cost is now ~15 ms at 300 payments.
+3. **Search punctuation is a separator, never a wildcard** (legacy folding replaced S3's `ILIKE`). One S3 assertion (`payments-http` › "q: … wildcards match literally") was rewritten to say so (`5_%` is the word "5"; `%` matches nothing special).
+   S3's `q` searched only receipt / reference / current party name; it now searches everything the legacy did (incl. dates, amounts, notes, invoice numbers).
+4. **Statement `opening`** is defined as the sum of entries dated before `from`, so `opening + Σ rows = closing` always. The legacy's own `opening` figure is inconsistent with its rows when a customer's OPENING row is dated later than transactions before `from` (its OPENING-first sort adds it to `opening` after listing it). Closing and row multiset are unaffected.
+5. **Row descriptions are the legacy `Ledger`'s strings** (`Sales invoice`, `Payment received — <method>`, `Refund paid — <method>`, `Credit note — return`, `Purchase invoice`, `Payment made — <method>`, `Return to supplier`, `Opening balance`, `Adjustment — <reason>`, milling rows). The display-time decoration of `24-client-changes.js` (a typed "Description / تفصیل", "Cash received against outstanding balance", invoice-line summaries, the Qty column) is **not** ported (needs invoice items, M2) — S5 can decide.
+6. **Lower-casing is per character** in JS and SQL (a Greek final sigma is not context-sensitive) — irrelevant to Urdu / English; it is what lets the two agree exactly. ASCII lower-casing in SQL is spelled out, never `lower()`, so no locale can change the result.
+7. **CSV cells are all quoted with CRLF records** (legacy: always quoted, LF); the Amount / On account cells are `1000` / `1000.50` (legacy: JS number `1000.5`). Region = the printed snapshot, else the shop's current region as "اردو English".
+8. **`GET /company` and `/regions` use `MASTER_DATA_VIEW`** (every role, INVENTORY included); receipts / statements / search / CSV use the payments read set (INVENTORY 403). The company block includes `logoDataUrl` (null here; a real logo would be a large data URL).
+9. **Search response extras** beyond the plan: `interpreted.dateFilterReplaced`, `dates[].src/dayFirst`, `onFile`, per-row `kind` / `appliedTo` / `regionId` / `regionName`; `problems` short-circuits to an empty list with zero facets.
+10. **`payments.description`** (legacy ledger-facing text, kept in `legacy_doc`) is searched via `legacy_doc->>'description'`; new vouchers have none.
+11. Non-BMP (emoji) characters are classified exactly (the generator covers U+0001-U+10FFFF); non-BMP *case-folding* uses the same generated pair table.
+
+### Carried from S3 (still in force)
+
+1. **(owner) `PAYMENT_PAYOUT`** gates pay and refund; SALES can receive but not pay out (add `"PAYMENT_PAYOUT"` to SALES in `packages/shared/src/permissions.ts` to restore). 2. **(owner)** explicit allocations are capped on the server.
+3. **(owner)** a second reverse is refused. 4. Reverse keeps allocation rows. 5. Idempotency key (`idempotencyKey`, 8-100 chars; same key ⇒ first voucher, HTTP 200). 6. `editAmount` rewrites the voucher's one journal entry in place.
+7. Reversal entry dated like the original; no period locking. 8. Reversing a customer-return refund voucher is allowed. 9. Picker lookups need `MASTER_DATA_VIEW` (INVENTORY can list shop names/phones — **(owner)** one-line change if unwanted).
+10. `receivedBy` = the session user's name, default method `Cash`, prefix `REC`. 11. Zod failures are HTTP 422 `{message, errors}`. 12. reverse / edit-amount answer 200, creates 201 (200 on replay).
+
+### S3 write endpoints (unchanged)
+
+`POST /payments/receive|pay|refund` (201 / 200 replay), `POST /payments/:id/reverse|edit-amount` (200), `GET /payments/:id` (voucher + `allocations` + `actions {reverse, editAmount}` each `{allowed, reason}` — show the reason verbatim),
+`GET /customers|suppliers/:id/balance`, `GET /customers/:id/outstanding-invoices`, `GET /suppliers/:id/outstanding-purchases`. Errors: 422 `{message, errors[]}`, 404 same shape, 401 (no session / bad CSRF), 403. Money = integer paisa; dates `YYYY-MM-DD`
+(`businessDateOf(new Date())`, never `toISOString()`); legacy wording verbatim (`PAYMENT_MESSAGES`).
 
 ## Findings worth knowing
 
-- **S1's note on numbering was wrong for payments.** It said a number is consumed even if the record fails ("gaps mean an attempt happened").
-  The legacy `_write` takes the number inside the same `FDB.tx` as the payment, so a rolled-back save consumes nothing; that is what is
-  implemented and tested (`schema.ts` comment corrected). Other legacy document kinds (invoices, purchases…) may behave differently; check when M2/M3 port them.
-- drizzle renders single-table selects **without table qualifiers**, so a correlated subquery written as `WHERE a.invoice_id = ${invoices.id}`
-  became a bare `"id"` and was ambiguous. `outstanding.ts` qualifies `"invoices"."id"` explicitly (comment there). Keep it in mind for new raw subqueries.
-- A missing `reason` on reverse first came back as Zod's generic `Required`; caught by the tests, fixed in the schema (`required_error`).
-- Allocations of one voucher share a `created_at`, so the detail lists them oldest document first (date → number) rather than in arbitrary order.
-- `pnpm test` still runs one package at a time; the api ledger-bridge test runs the importer, which TRUNCATEs the business tables — every other
-  api test seeds its own uniquely-named parties and doesn't depend on table contents.
-- Windows CRLF working-copy warnings from git are normal here (`autocrlf`); nothing to do.
+- **Two hazards of typing into these tools:** the editing tools decode `\uXXXX` sequences in what I send, so invisible characters ended up *literally* in `fold.ts` and `payments.csv.ts`; both now build them from code-point numbers (`String.fromCharCode`). Nothing else contains raw zero-width characters except intentional Urdu text and the legacy-copy regex in the test reference.
+- A query term is a whitespace-free token folded — so "trad ers" is two words but `trad-ers` is the *phrase* "trad ers", which is what the "spaces removed" rule serves (`zam-zam` finds `zamzam`). My first parity cases missed this; the mutation check caught it.
+- Postgres inlines a plain single-expression SQL function but not one with a `FROM` / CTE: `search_amount_text` written with a CTE cost >1 ms per row; as plain expressions it is free. `fold_search` was 2× faster after dropping its subselect. Measured, not guessed.
+- `NULLIF(fold_search(x), '')` inside `concat_ws` evaluates `x` once; the `WITH … AS MATERIALIZED` structure of the search query folds nothing per request at all now.
+- Sorting by `receipt_number` uses `COLLATE "C"` (byte order, like the legacy `<`); a locale collation would order `PV-…` vs `REC-…` differently in CI's Postgres than in the embedded one.
+- Windows shells mangle non-ASCII in curl arguments (Urdu `q=` arrived empty); percent-encode by hand when smoke-testing. Not a server problem (tests use `encodeURIComponent`).
+- The api test DB is shared across files run one at a time; `payments-search-parity`, `statements-proof`, `receipt`, `s4-reads` **import a backup, which wipes the business tables** — every other test seeds its own uniquely named parties and doesn't care.
 
 ## Known issues / not done
 
-- **Not seen by a person:** there is no UI yet, so no human has driven any of this in a browser (S4). The real-server smoke above was curl only.
-- Real-backup coverage is thin (see the caveat above): returns / reversals / adjustments / milling are exercised only by the fixture and the tests.
-- `GET /payments` `q` is a plain case-insensitive substring over receipt number, reference and party name; the day-first numeric-date search of
-  legacy module 38 is S4's. Balance / outstanding / lookup endpoints are not paged (lookups take `limit`).
-- Statement endpoints do not exist (S4 decides ordering). Carried rules for S4: order by business date → `journal_entries.created_at` → id;
-  the OPENING row first for customers; **omit both entries (original + reversal) of a REVERSED payment/adjustment**; an edited voucher is still
-  one row at its current amount. S4 must still decide whether to keep true-`created_at` same-day order or mimic the legacy quirk (S2 deviation 5).
-- The three provisional accounts (`ACCOUNT_ADJUSTMENTS`, `MILLING_CLEARING`, `MILLING_FEES`) are unchanged; the old `auditLog` store is still deferred.
-- The importer loads the whole JSON in memory (fine at this size). `apps/web` has no tests.
-- Owner decisions still open: paper-book figures / cutover date (old repo's `CLAUDE.md` item 1), and items 1, 2 and 9 above.
+- **Not seen by a person.** No UI exists; the real-server smoke was curl only. Real-backup coverage is thin (7 payments; no returns / reversals / adjustments / milling).
+- **Scale:** text search is `strpos` over stored columns plus a per-request gather of invoice numbers and a per-party current-text fold; comfortable at thousands of vouchers. If the business ever holds tens of thousands, the next step is to persist the invoice-number field too.
+- The statement description decoration of `24-client-changes.js` and the Qty column are not ported (deviation 5). Statement / receipt print layout is S5.
+- `payments.search_*` columns make an `INSERT` cost ~100 µs more (folding) — irrelevant at this write volume.
+- The three provisional accounts (`ACCOUNT_ADJUSTMENTS`, `MILLING_CLEARING`, `MILLING_FEES`) are unchanged; the old `auditLog` store is still deferred. `apps/web` has no tests (S5).
+- Owner decisions still open: paper-book figures / cutover date (old repo's `CLAUDE.md` item 1), the S3 items 1 / 2 / 9 above, and whether INVENTORY should see `/company` (deviation 8).
 
 ## Carried over from S1 / S2 (still in force)
 
-- Money is `bigint` in Postgres and a plain JS `number` of paisa in the app (`bigint({ mode: "number" })`). Enum-shaped columns are plain
-  `text` validated at the app boundary (`payments` / `payment_allocations` also carry CHECKs).
-- Login lockout = 5 wrong passwords locks the account for 15 min plus a per-IP throttle; 12 h absolute session cap, no idle timeout (owner's
-  request); CSRF is a server-held synchronizer token replayed in `x-csrf-token`.
-- Guards/controllers/services use explicit `@Inject(...)` tokens (Vitest's esbuild doesn't emit decorator metadata); `fastify` is pinned to
-  the exact version `@nestjs/platform-fastify` depends on. `packages/shared` and `packages/db` build to `dist/`: **run `pnpm build` before `pnpm test`.**
-- Windows embedded-postgres clusters must be UTF8 (`--encoding=UTF8 --locale=C`) — already in `@farooq/db` for tests and `db:dev`.
-- The importer wipes business + ledger tables (never `users`/`sessions`/`role_permissions`/`audit_log`/`accounts`), is local-only, and aborts
-  on any unknown store/field; classify it in `packages/import/src/classification.ts`. Row ids are deterministic (UUIDv5 of `<store>:<legacy id>`).
-- Paper-book `legacy*` figures are not posted; the new balances equal what the *old ERP shows*. Control accounts are seeded by migration 0002.
-- Browser smoke pattern (no Chrome extension here): Playwright from a scratch location — see CLAUDE.md.
+- Money is `bigint` in Postgres and a plain JS `number` of paisa in the app. Enum-shaped columns are plain `text` validated at the app boundary.
+- Login lockout = 5 wrong passwords locks the account for 15 min plus a per-IP throttle; 12 h absolute session cap, no idle timeout (owner's request); CSRF is a server-held synchronizer token in `x-csrf-token`.
+- Guards/controllers/services use explicit `@Inject(...)` tokens (Vitest's esbuild doesn't emit decorator metadata); `fastify` is pinned to the version `@nestjs/platform-fastify` depends on. `packages/shared`, `packages/db`, `packages/import` build to `dist/`: **run `pnpm build` before `pnpm test`.**
+- Windows embedded-postgres clusters must be UTF8 (`--encoding=UTF8 --locale=C`) — already in `@farooq/db`. Everything in this session was proven in that C-locale cluster **and** (via CI) a real Postgres service container.
+- The importer wipes business + ledger tables (now also `company_profile`; never `users`/`sessions`/`role_permissions`/`audit_log`/`accounts`), is local-only, aborts on any unknown store/field (`business` excepted — see above). Row ids are deterministic (UUIDv5 of `<store>:<legacy id>`).
+- Paper-book `legacy*` figures are not posted; the new balances equal what the *old ERP shows*. Browser smoke pattern (no Chrome extension): Playwright from a scratch location — see CLAUDE.md.
+- Windows CRLF working-copy warnings from git are normal here (`autocrlf`).
 
-## Next step — S4: Payments UI + statements (`docs/sessions/S4.md`)
+## CI run
 
-- Build against the endpoint table above; import the Zod schemas/types from `@farooq/shared`; show `errors[0]` / `errors` from 422s and the
-  `actions.*.reason` strings verbatim; send an `idempotencyKey`; convert rupees ↔ integer paisa at the edge; use `businessDateOf` for "today".
-- Decide the statement ordering questions above (S2 deviations 5/6, S3 items 6/7) and build the statement endpoint on the journal.
-- After building, re-run the importer + reconciliation (fixture and the newest real nightly — a richer one would be a stronger check than 2026-09-22's).
-- Then mark the `Payments` rows in `docs/PARITY.md` **verified** only after the S4 walkthrough and a reconciliation after real use.
+(see the last line of this section, added after the push)
+
+## Next step — S5: Payments UI, statements, receipt print + browser tests (`docs/sessions/S5.md`, corrected to the real API)
+
+- Build against the endpoint table above; import the schemas from `@farooq/shared`; show `errors` / `actions.*.reason` verbatim; send `idempotencyKey`; `parseRupees` / `formatPaisa` at the edge; `businessDateOf` for "today".
+- Print the receipt from `GET /payments/:id/receipt` (labels are in `RECEIPT_LABELS`) and statements from the statement JSON.
+- Then mark the Payments rows in `docs/PARITY.md` **verified** only after the S5 walkthrough and a reconciliation after real use.

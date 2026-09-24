@@ -75,9 +75,21 @@ const purchase = (id: string, no: string, supplierId: string, purchaseDate: stri
   stockApplied: true, orderedQty: 10, receivedQty: 10, revision: 1,
 });
 
+/** What a voucher printed about its party when it was made (name, owner, region as "اردو — English"): the legacy `*Snapshot` fields. */
+const SNAP: Record<string, [string, string, string]> = {
+  "cust-1": ["Al-Noor Traders", "Noor", "الفا بازار — Alpha Bazar"],
+  "cust-2": ["Bismillah Store", "", "بیٹا منڈی — Beta Mandi"],
+  "cust-3": ["Cash Counter", "", "الفا بازار — Alpha Bazar"],
+  "cust-4": ["Delta Kiryana", "", "الفا بازار — Alpha Bazar"],
+  "cust-5": ["دکان فاروق", "فاروق", "الفا بازار — Alpha Bazar"],
+  "sup-1": ["Sunrise Mills Ltd", "", ""],
+  "sup-2": ["Tariq Brothers", "", ""],
+  "sup-4": ["الفلاح ملز", "", ""],
+};
+
 const payment = (id: string, receiptNumber: string, direction: "IN" | "OUT", partyType: "CUSTOMER" | "SUPPLIER", partyId: string, amount: number, paymentDate: string, createdAt: string, extra: Doc = {}): Doc => ({
   id, receiptNumber, direction, partyId, partyType, isRefund: partyType === "CUSTOMER" && direction === "OUT",
-  partyNameSnapshot: "", partyOwnerSnapshot: "", regionSnapshot: "", amount, method: "Cash", reference: "", paymentDate, note: "",
+  partyNameSnapshot: SNAP[partyId]?.[0] ?? "", partyOwnerSnapshot: SNAP[partyId]?.[1] ?? "", regionSnapshot: SNAP[partyId]?.[2] ?? "", amount, method: "Cash", reference: "", paymentDate, note: "",
   receivedBy: "Fixture", status: "POSTED", createdAt, createdBy: "Fixture", balanceBefore: 0, balanceAfter: 0,
   ...extra,
 });
@@ -215,7 +227,16 @@ export function buildFixture() {
     syncQueue: [],
     meta: [{ k: "appVersion", v: "fixture" }],
     legacy: [{ k: "seq", v: {} }],
-    business: [{ id: "biz", businessName: "Fixture & Co" }],
+    // the settings bag, fabricated: same key names as the real one (incl. the boolean `requirePinOnSwitch`, which must NOT be mistaken for a credential)
+    business: [{
+      id: "biz", businessName: "Fixture & Co", legalName: "Fixture & Co Traders", tagline: "Wholesale Dealer", taglineUr: "ہول سیل ڈیلر",
+      slogan: "Trust in every bag", logoText: "F&C", logoDataUrl: "", address: "1 Fixture Road", city: "Testville", phone: "0300-1111111",
+      shopPhone: "0944-000000", whatsapp: "", email: "", website: "", ntn: "", registrationNo: "", proprietor: "Fixture Owner",
+      invoicePrefix: "INV", purchasePrefix: "PUR", receiptPrefix: "REC", currency: "PKR", currencyLabel: "PKR", taxEnabled: false,
+      invoiceFooter: "Thank you.", terms: "Fixture terms", bankDetails: "Fixture Bank 0000", preparedByLabel: "Prepared by",
+      receivedByLabel: "Received by", smsProvider: "", smsSenderId: "", requirePinOnSwitch: false, autoBackup: true,
+      categories: ["Flour", "Sugar"], brands: [], units: ["Bag"], updatedAt: T("2026-02-01", "05:00:00"),
+    }],
   };
   // every other store the real backup has, empty
   for (const s of [

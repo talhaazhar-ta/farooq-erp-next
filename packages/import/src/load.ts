@@ -9,6 +9,7 @@ const {
   accountAdjustments,
   accounts,
   auditLog,
+  companyProfile,
   customers,
   invoices,
   journalEntries,
@@ -65,6 +66,7 @@ export interface ImportResult {
 export const WIPED_TABLES = [
   "journal_lines", "journal_entries", "payment_allocations", "returns", "payments", "account_adjustments",
   "milling_jobs", "invoices", "purchases", "customers", "suppliers", "products", "warehouses", "regions", "sequences",
+  "company_profile",
 ] as const;
 
 async function insertChunked<T>(rows: T[], size: number, insert: (chunk: T[]) => PromiseLike<unknown>): Promise<void> {
@@ -84,12 +86,11 @@ export async function runImport(backup: unknown, opts: ImportOptions): Promise<I
   try {
     const db = drizzle(client, { schema });
 
-    // The newest column the importer writes (migration 0003): if it is missing, the database is behind the code.
+    // The newest table the importer writes (migration 0004): if it is missing, the database is behind the code.
     const present = await client`
-      SELECT 1 FROM information_schema.columns
-      WHERE table_schema = 'public' AND table_name = 'returns' AND column_name = 'invoice_id'`;
+      SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'company_profile'`;
     if (present.length === 0) {
-      throw new ImportError("The database is not migrated to the S3 schema — run `pnpm --filter @farooq/api db:migrate` first.");
+      throw new ImportError("The database is not migrated to the S4 schema — run `pnpm --filter @farooq/api db:migrate` first.");
     }
 
     return await db.transaction(async (tx) => {
@@ -114,6 +115,7 @@ export async function runImport(backup: unknown, opts: ImportOptions): Promise<I
       await insertChunked(r.accountAdjustments, 200, (c) => tx.insert(accountAdjustments).values(c));
       await insertChunked(r.millingJobs, 200, (c) => tx.insert(millingJobs).values(c));
       await insertChunked(r.sequences, 500, (c) => tx.insert(sequences).values(c));
+      await insertChunked(r.companyProfile, 50, (c) => tx.insert(companyProfile).values(c));
 
       await insertChunked(prepared.journal, 500, (c) =>
         tx.insert(journalEntries).values(
@@ -152,6 +154,7 @@ export async function runImport(backup: unknown, opts: ImportOptions): Promise<I
         returns: r.returns.length,
         account_adjustments: r.accountAdjustments.length,
         milling_jobs: r.millingJobs.length,
+        company_profile: r.companyProfile.length,
         sequences: r.sequences.length,
       };
       await tx.insert(auditLog).values({

@@ -30,7 +30,17 @@ export const IMPORTED_STORES = {
     "feeds Ledger.customer: 16-khata.js wraps the base ledger with adjustments (moved here from 'deferred' — the plan's own rule)",
   millingJobs:
     "feeds Ledger.supplier: 32-milling.js wraps the base ledger with issue/receive/fee rows (moved here from 'deferred' — the plan's own rule)",
+  business:
+    "company settings (~60 keys) — loaded VERBATIM into company_profile (S4: receipts and statements print the company block from it; moved here from 'deferred')",
 } as const;
+
+/**
+ * Imported stores that are NOT checked field by field. `business` is a settings bag the app reads whole (every key
+ * is a preference or a printed label); classifying 60 keys would only freeze the list, and a new setting added in the
+ * old ERP must not abort the import. What IS checked instead: no key may look like a credential (see company.ts).
+ */
+export const VERBATIM_STORES = ["business"] as const;
+export type VerbatimStore = (typeof VERBATIM_STORES)[number];
 
 /** Stores counted but not loaded: they belong to a later milestone and do not feed either ledger. */
 export const DEFERRED_STORES = {
@@ -61,7 +71,6 @@ export const DEFERRED_STORES = {
   documentEdits: "issued-document edit trail — later milestone",
   operations: "idempotency claims of the old client; the new API has its own",
   auditLog: "the old audit trail: kept in the backup; the new project starts its own (a one-row IMPORT entry is written)",
-  business: "company settings — later milestone",
 } as const;
 
 /** Stores never read on purpose. */
@@ -90,7 +99,7 @@ const PAPER_BOOK =
 const STALE_CACHE = "stale cached field: the app's Ledger ignores it";
 const DERIVED_CACHE = "cache derived from allocations/ledger at write time; recomputed, never read back";
 
-export const FIELD_CLASSES: Record<ImportedStore, FieldClass> = {
+export const FIELD_CLASSES: Record<Exclude<ImportedStore, VerbatimStore>, FieldClass> = {
   regions: {
     mapped: ["id", "en", "ur", "active"],
     docOnly: [{ reason: "route names — later master-data work", keys: ["routes"] }],
@@ -183,15 +192,14 @@ export const FIELD_CLASSES: Record<ImportedStore, FieldClass> = {
     mapped: [
       "id", "receiptNumber", "direction", "partyId", "partyType", "isRefund", "amount", "method", "reference",
       "paymentDate", "note", "receivedBy", "status", "createdAt",
+      "partyNameSnapshot", "partyOwnerSnapshot", "regionSnapshot", // what the voucher printed (S4): payments.party_*_snapshot / region_snapshot
       "reversedAt", // only on reversed payments: dates the reversing journal entry; stored in payments.reversed_at
       "reverseReason", // stored in payments.reverse_reason (S3)
     ],
     docOnly: [
       {
-        reason: "snapshots / provenance — kept for the audit trail",
-        keys: [
-          "partyNameSnapshot", "partyOwnerSnapshot", "regionSnapshot", "createdBy", "description",
-        ],
+        reason: "provenance / the ledger-facing description — kept in legacy_doc (search reads `description` from there)",
+        keys: ["createdBy", "description"],
       },
     ],
     ignored: [
@@ -270,7 +278,7 @@ export const FIELD_CLASSES: Record<ImportedStore, FieldClass> = {
   },
 };
 
-export function knownFields(store: ImportedStore): Set<string> {
+export function knownFields(store: Exclude<ImportedStore, VerbatimStore>): Set<string> {
   const c = FIELD_CLASSES[store];
   return new Set([
     ...c.mapped,

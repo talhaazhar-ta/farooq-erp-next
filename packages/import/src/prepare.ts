@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type {
   accountAdjustments,
+  companyProfile,
   customers,
   invoices,
   millingJobs,
@@ -28,6 +29,7 @@ import {
   type JournalLineDraft,
 } from "@farooq/db";
 import { ALLOWED_STATUS } from "./classification.js";
+import { checkCompanyDoc } from "./company.js";
 import {
   checkClassification,
   checkEnvelope,
@@ -94,6 +96,7 @@ export interface Prepared {
     returns: (typeof returns.$inferInsert)[];
     accountAdjustments: (typeof accountAdjustments.$inferInsert)[];
     millingJobs: (typeof millingJobs.$inferInsert)[];
+    companyProfile: (typeof companyProfile.$inferInsert)[];
     sequences: (typeof sequences.$inferInsert)[];
   };
   journal: JournalDraft[];
@@ -170,6 +173,7 @@ export function prepareImport(raw: unknown): Prepared {
     returns: [],
     accountAdjustments: [],
     millingJobs: [],
+    companyProfile: [],
     sequences: [],
   };
   const journal: JournalDraft[] = [];
@@ -371,6 +375,9 @@ export function prepareImport(raw: unknown): Prepared {
       status,
       receiptNumber,
       receivedBy: optStr("payments", d, "receivedBy"),
+      partyNameSnapshot: optStr("payments", d, "partyNameSnapshot"),
+      partyOwnerSnapshot: optStr("payments", d, "partyOwnerSnapshot"),
+      regionSnapshot: optStr("payments", d, "regionSnapshot"),
       ...(createdAt ? { createdAt } : {}),
       reversedAt: status === "REVERSED" ? reversedAt : null,
       reverseReason: optStr("payments", d, "reverseReason"),
@@ -496,6 +503,16 @@ export function prepareImport(raw: unknown): Prepared {
       }
       if (feeAmountP) post("MILLING_FEE", id, date, `Milling fee ${number ?? ""}`.trim(), plusMs(createdAt, 2), payableLines(supplierId, "MILLING_FEES", feeAmountP));
     }
+  }
+
+  /* ── company settings: loaded verbatim (a settings bag), after the credential check ─────────────────── */
+
+  const businessSeen = new Set<string>();
+  for (const d of data.business ?? []) {
+    const id = reqStr("business", d, "id");
+    if (businessSeen.has(id)) throw new ImportError(`Duplicate id in 'business': ${id}`);
+    businessSeen.add(id);
+    rows.companyProfile.push({ id, doc: checkCompanyDoc(d) });
   }
 
   /* ── sequences ───────────────────────────────────────────────────────── */

@@ -1,7 +1,9 @@
 import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query, Res } from "@nestjs/common";
 import type { FastifyReply } from "fastify";
 import {
+  businessDateOf,
   editPaymentAmountSchema,
+  exportPaymentsQuerySchema,
   listPaymentsQuerySchema,
   payPaymentSchema,
   PAYMENT_MESSAGES,
@@ -15,6 +17,9 @@ import { CurrentUser } from "../auth/current-user.decorator.js";
 import { RequireAnyPermission, RequirePermission } from "../auth/permission.decorator.js";
 import type { AuthenticatedUser } from "../auth/session.guard.js";
 import { DB } from "../db/db.module.js";
+import { CLOCK, type Clock } from "./clock.js";
+import { exportPaymentsCsv } from "./payments.csv.js";
+import { loadReceipt } from "../statements/statements.queries.js";
 import { NotFoundError, parseOrRefuse } from "./errors.js";
 import { loadPaymentDetail, listPayments } from "./payments.queries.js";
 import { PaymentsService, type Actor, type WriteResult } from "./payments.service.js";
@@ -38,6 +43,7 @@ export class PaymentsController {
   constructor(
     @Inject(PaymentsService) private readonly service: PaymentsService,
     @Inject(DB) private readonly db: Db,
+    @Inject(CLOCK) private readonly clock: Clock,
   ) {}
 
   /** A create that hit an idempotency key it had already seen answers 200 with the original voucher, not 201. */
@@ -50,6 +56,26 @@ export class PaymentsController {
   @Get()
   list(@Query() query: unknown, @CurrentUser() _user: AuthenticatedUser) {
     return listPayments(this.db, parseOrRefuse(listPaymentsQuerySchema, query));
+  }
+
+  /** Every match of the current filters as a CSV (UTF-8 with BOM, RFC 4180, spreadsheet-injection guarded). Declared before `:id`. */
+  @RequireAnyPermission(...PAYMENT_READ_PERMISSIONS)
+  @Get("export.csv")
+  async exportCsv(@Query() query: unknown, @Res({ passthrough: true }) reply: FastifyReply) {
+    const { csv } = await exportPaymentsCsv(this.db, parseOrRefuse(exportPaymentsQuerySchema, query));
+    reply.header("Content-Type", "text/csv; charset=utf-8");
+    reply.header("Content-Disposition", `attachment; filename="farooq-co-payments-${businessDateOf(this.clock.now())}.csv"`);
+    reply.header("Cache-Control", "no-store");
+    return csv;
+  }
+
+  /** The printed receipt / voucher model: company block, snapshots, allocations, amount in words, balances before / after. */
+  @RequireAnyPermission(...PAYMENT_READ_PERMISSIONS)
+  @Get(":id/receipt")
+  async receipt(@Param("id") id: string) {
+    const r = await loadReceipt(this.db, idOr404(id, PAYMENT_MESSAGES.notFound));
+    if (!r) throw new NotFoundError(PAYMENT_MESSAGES.notFound);
+    return r;
   }
 
   @RequireAnyPermission(...PAYMENT_READ_PERMISSIONS)

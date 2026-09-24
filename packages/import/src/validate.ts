@@ -4,7 +4,9 @@ import {
   IGNORED_STORES,
   IMPORTED_STORES,
   knownFields,
+  VERBATIM_STORES,
   type ImportedStore,
+  type VerbatimStore,
 } from "./classification.js";
 
 /** Anything the importer refuses to guess about. The message always names the store (and field where it applies). */
@@ -86,7 +88,8 @@ export function checkClassification(data: Record<string, Doc[]>): void {
       );
     }
   }
-  for (const store of Object.keys(IMPORTED_STORES) as ImportedStore[]) {
+  const fieldChecked = (Object.keys(IMPORTED_STORES) as ImportedStore[]).filter((s): s is Exclude<ImportedStore, VerbatimStore> => !(VERBATIM_STORES as readonly string[]).includes(s));
+  for (const store of fieldChecked) {
     const known = knownFields(store);
     for (const doc of data[store] ?? []) {
       for (const key of Object.keys(doc)) {
@@ -103,6 +106,7 @@ export function checkClassification(data: Record<string, Doc[]>): void {
 /** Sanity-checks the classification tables themselves (each imported store has a field class). */
 export function assertClassificationComplete(): void {
   for (const store of Object.keys(IMPORTED_STORES)) {
+    if ((VERBATIM_STORES as readonly string[]).includes(store)) continue;
     if (!(store in FIELD_CLASSES)) throw new ImportError(`Imported store '${store}' has no field classification.`);
     classifyStore(store);
   }

@@ -4,3 +4,4 @@ export { reconcile, formatReport, localStamp, exitCodeFor, type ReconciliationRe
 export { createLegacyLedger, type LegacyLedger, type LedgerRow, type LedgerResult } from "./legacy-ledger.js";
 export { checkEnvelope, ImportError, type Backup } from "./validate.js";
 export * from "./classification.js";
+export { checkCompanyDoc, looksLikeCredentialName, keyWords } from "./company.js";

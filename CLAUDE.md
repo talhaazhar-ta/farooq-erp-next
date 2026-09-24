@@ -102,7 +102,9 @@ Urdu shop names) — keep it that way for any new cluster.
 **apps/api tests** (S3) also import `@farooq/import` (the ledger-bridge test imports the synthetic fixture through the real importer),
 so `pnpm build` must have run first; `pnpm --filter @farooq/api typecheck` covers `test/` too (`tsconfig.test.json`). Tests seed their own
 uniquely-named shops/suppliers and never truncate, except `payments-ledger-bridge`, which runs the importer (it wipes the business tables).
-Payment endpoints, the Zod schemas S4 should import, and the permission model are listed in `docs/STATUS.md`.
+Payment / search / statement / receipt endpoints, the Zod schemas the UI imports, and the permission model are listed in `docs/STATUS.md`.
+The S4 parity / proof tests (`payments-search-parity`, `statements-proof`, `receipt`, `s4-reads`) **import a backup**, which wipes the business tables — every other test seeds its own uniquely named rows. The real-backup datasets in those tests run only when `data/business-20260922-210002-v505-6a81.json` exists (never in CI).
+Migration `0004` contains generated SQL (`fold_search`): regenerate with `node packages/shared/scripts/generate-fold-sql.mjs` (after `pnpm build`) into a **new** migration if `fold-search-parity` ever goes red after a Node upgrade.
 
 **Running the app locally** (manual/browser checks, not CI):
 
@@ -141,7 +143,7 @@ script used.
 ## Roadmap
 
 See `docs/ROADMAP.md` for the full milestone list. Current milestone: **M1 — Foundation + Payments**
-(S1 scaffold+DB+auth ✓ → S2 importer+reconciliation ✓ → S3 Payments service+API ✓ → S4 search/statement/receipt server side → S5 Payments UI + e2e).
+(S1 scaffold+DB+auth ✓ → S2 importer+reconciliation ✓ → S3 Payments service+API ✓ → S4 search/statement/receipt server side ✓ → S5 Payments UI + e2e).
 
 ## Where to look for more detail
 

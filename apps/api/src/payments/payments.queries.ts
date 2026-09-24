@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, ilike, inArray, lte, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import {
   customers,
   invoices,
@@ -12,6 +12,7 @@ import {
 import {
   roleHasPermission,
   type ListPaymentsQuery,
+  type PaymentKind,
   type OutstandingDocument,
   type PartyLookupItem,
   type PartyLookupQuery,
@@ -26,6 +27,7 @@ import {
   supplierPurchaseOutstanding,
   type OutstandingRow,
 } from "./outstanding.js";
+import { searchPayments } from "./payments.search.js";
 import { editAmountRefusal, REVERSE_MESSAGES } from "./rules.js";
 
 /**
@@ -35,6 +37,10 @@ import { editAmountRefusal, REVERSE_MESSAGES } from "./rules.js";
 
 type PaymentRow = typeof payments.$inferSelect;
 
+/** The legacy `dirOf`: which of the three lists a voucher belongs to, whatever its status. */
+export const kindOf = (p: { direction: string; partyType: string }): PaymentKind =>
+  p.direction === "IN" ? "received" : p.partyType === "CUSTOMER" ? "paidToShops" : "paidToSuppliers";
+
 function toVoucher(p: PaymentRow, partyName: string | null, allocatedP: number): PaymentVoucher {
   return {
     id: p.id,
@@ -43,6 +49,10 @@ function toVoucher(p: PaymentRow, partyName: string | null, allocatedP: number):
     partyType: p.partyType as PaymentVoucher["partyType"],
     partyId: p.partyId,
     partyName,
+    kind: kindOf(p),
+    partyNameSnapshot: p.partyNameSnapshot,
+    partyOwnerSnapshot: p.partyOwnerSnapshot,
+    regionSnapshot: p.regionSnapshot,
     isRefund: p.isRefund,
     amountP: p.amountP,
     method: p.method,
@@ -124,62 +134,76 @@ export async function loadPaymentDetail(db: Executor, id: string, role: Role): P
 /** Escapes LIKE wildcards so a search for "50%" or "a_b" matches literally. */
 const likePattern = (q: string): string => `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
 
-export async function listPayments(db: Executor, q: ListPaymentsQuery): Promise<PaymentListResponse> {
-  const conds: SQL[] = [];
-  if (q.direction) conds.push(eq(payments.direction, q.direction));
-  if (q.partyType) conds.push(eq(payments.partyType, q.partyType));
-  if (q.partyId) conds.push(eq(payments.partyId, q.partyId));
-  if (q.status) conds.push(eq(payments.status, q.status));
-  if (q.from) conds.push(gte(payments.paymentDate, q.from));
-  if (q.to) conds.push(lte(payments.paymentDate, q.to));
-  if (q.q) {
-    const pat = likePattern(q.q);
-    conds.push(
-      or(
-        ilike(payments.receiptNumber, pat),
-        ilike(payments.reference, pat),
-        ilike(customers.shopName, pat),
-        ilike(suppliers.companyName, pat),
-      )!,
-    );
-  }
-  const where = conds.length ? and(...conds) : undefined;
+/** A voucher as the list draws it, before it is mapped to the wire shape (the CSV needs a few more columns). */
+export interface ListRow {
+  p: PaymentRow;
+  partyName: string | null;
+  regionId: string | null;
+  regionEn: string | null;
+  regionUr: string | null;
+  /** The invoice / purchase numbers it was applied to, oldest document first. */
+  refs: string[];
+  allocationCount: number;
+  allocatedP: number;
+}
 
-  const base = () =>
-    db
-      .select({ p: payments, cn: customers.shopName, sn: suppliers.companyName })
-      .from(payments)
-      .leftJoin(customers, and(eq(payments.partyType, "CUSTOMER"), eq(payments.partyId, customers.id)))
-      .leftJoin(suppliers, and(eq(payments.partyType, "SUPPLIER"), eq(payments.partyId, suppliers.id)));
-
-  const rows = await base()
-    .where(where)
-    .orderBy(desc(payments.paymentDate), desc(payments.createdAt), desc(payments.id))
-    .limit(q.limit)
-    .offset(q.offset);
-
-  const [totalRow] = await db
-    .select({ n: count() })
+/** Loads the given vouchers with their allocations, in the order of `ids`. */
+export async function loadListRows(db: Executor, ids: string[]): Promise<ListRow[]> {
+  if (ids.length === 0) return [];
+  const rows = await db
+    .select({ p: payments, cn: customers.shopName, sn: suppliers.companyName, regionId: customers.regionId, regionEn: regions.nameEn, regionUr: regions.nameUr })
     .from(payments)
     .leftJoin(customers, and(eq(payments.partyType, "CUSTOMER"), eq(payments.partyId, customers.id)))
+    .leftJoin(regions, eq(customers.regionId, regions.id))
     .leftJoin(suppliers, and(eq(payments.partyType, "SUPPLIER"), eq(payments.partyId, suppliers.id)))
-    .where(where);
-
-  const sums = new Map<string, { n: number; total: number }>();
-  if (rows.length) {
-    const agg = await db
-      .select({ paymentId: paymentAllocations.paymentId, n: sql<number>`count(*)::int`, total: sql<string>`COALESCE(SUM(${paymentAllocations.amountP}), 0)` })
-      .from(paymentAllocations)
-      .where(inArray(paymentAllocations.paymentId, rows.map((r) => r.p.id)))
-      .groupBy(paymentAllocations.paymentId);
-    for (const a of agg) sums.set(a.paymentId, { n: a.n, total: Number(a.total) });
+    .where(inArray(payments.id, ids));
+  const allocs = await db
+    .select({
+      paymentId: paymentAllocations.paymentId,
+      amountP: paymentAllocations.amountP,
+      number: sql<string | null>`COALESCE(${invoices.invoiceNumber}, ${purchases.purchaseNumber})`,
+    })
+    .from(paymentAllocations)
+    .leftJoin(invoices, eq(paymentAllocations.invoiceId, invoices.id))
+    .leftJoin(purchases, eq(paymentAllocations.purchaseId, purchases.id))
+    .where(inArray(paymentAllocations.paymentId, ids))
+    .orderBy(
+      asc(paymentAllocations.createdAt),
+      asc(sql`COALESCE(${invoices.date}, ${purchases.date})`),
+      asc(sql`COALESCE(${invoices.invoiceNumber}, ${purchases.purchaseNumber})`),
+      asc(paymentAllocations.id),
+    );
+  const byPayment = new Map<string, { refs: string[]; n: number; total: number }>();
+  for (const a of allocs) {
+    const e = byPayment.get(a.paymentId) ?? { refs: [], n: 0, total: 0 };
+    if (a.number) e.refs.push(a.number);
+    e.n += 1;
+    e.total += a.amountP;
+    byPayment.set(a.paymentId, e);
   }
-
-  const items: PaymentListItem[] = rows.map((r) => {
-    const s = sums.get(r.p.id);
-    return { ...toVoucher(r.p, partyNameOf(r), s?.total ?? 0), allocationCount: s?.n ?? 0 };
+  const byId = new Map(rows.map((r) => [r.p.id, r]));
+  return ids.flatMap((id) => {
+    const r = byId.get(id);
+    if (!r) return [];
+    const a = byPayment.get(id);
+    return [{ p: r.p, partyName: partyNameOf(r), regionId: r.regionId, regionEn: r.regionEn, regionUr: r.regionUr, refs: a?.refs ?? [], allocationCount: a?.n ?? 0, allocatedP: a?.total ?? 0 }];
   });
-  return { items, total: totalRow?.n ?? 0, limit: q.limit, offset: q.offset };
+}
+
+const toListItem = (r: ListRow): PaymentListItem => ({
+  ...toVoucher(r.p, r.partyName, r.allocatedP),
+  allocationCount: r.allocationCount,
+  appliedTo: r.refs,
+  regionId: r.regionId,
+  regionName: r.regionEn,
+});
+
+/** `GET /payments`: the search of legacy module 38, on the server. See payments.search.ts. */
+export async function listPayments(db: Executor, q: ListPaymentsQuery): Promise<PaymentListResponse> {
+  const { limit, offset, ...filters } = q;
+  const found = await searchPayments(db, filters, { limit, offset });
+  const items = (await loadListRows(db, found.ids)).map(toListItem);
+  return { items, total: found.total, limit, offset, interpreted: found.interpreted, facets: found.facets, onFile: found.onFile };
 }
 
 /* ── picker lookups ─────────────────────────────────────────────────── */
@@ -193,17 +217,24 @@ export async function lookupCustomers(db: Executor, q: PartyLookupQuery): Promis
       contact: customers.ownerName,
       phone: customers.phone,
       region: regions.nameEn,
+      regionId: customers.regionId,
       active: customers.active,
     })
     .from(customers)
     .leftJoin(regions, eq(customers.regionId, regions.id))
-    .where(pat ? or(ilike(customers.shopName, pat), ilike(customers.ownerName, pat), ilike(customers.phone, pat), ilike(customers.legacyCode, pat)) : undefined)
+    .where(
+      and(
+        q.regionId ? eq(customers.regionId, q.regionId) : undefined,
+        pat ? or(ilike(customers.shopName, pat), ilike(customers.ownerName, pat), ilike(customers.phone, pat), ilike(customers.legacyCode, pat)) : undefined,
+      ),
+    )
     .orderBy(asc(customers.shopName), asc(customers.id))
     .limit(q.limit);
   return rows;
 }
 
 export async function lookupSuppliers(db: Executor, q: PartyLookupQuery): Promise<PartyLookupItem[]> {
+  if (q.regionId) return []; // a region belongs to a shop; a supplier has none, so it cannot pass
   const pat = q.q ? likePattern(q.q) : null;
   const rows = await db
     .select({
@@ -217,7 +248,7 @@ export async function lookupSuppliers(db: Executor, q: PartyLookupQuery): Promis
     .where(pat ? or(ilike(suppliers.companyName, pat), ilike(suppliers.phone, pat)) : undefined)
     .orderBy(asc(suppliers.companyName), asc(suppliers.id))
     .limit(q.limit);
-  return rows.map((r) => ({ ...r, contact: r.contact || null, region: null }));
+  return rows.map((r) => ({ ...r, contact: r.contact || null, region: null, regionId: null }));
 }
 
 /* ── balances (from the journal — the same definition the reconciliation uses) ─── */

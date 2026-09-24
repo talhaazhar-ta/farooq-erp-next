@@ -29,6 +29,13 @@
       "when": 1790188292865,
       "tag": "0003_s3_payments_service",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790193791391,
+      "tag": "0004_s4_search_receipt",
+      "breakpoints": true
     }
   ]
 }

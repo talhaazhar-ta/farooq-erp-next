@@ -12,7 +12,9 @@ import {
   IMPORTED_STORES,
   createLegacyLedger,
   prepareImport,
+  VERBATIM_STORES,
   type ImportedStore,
+  type VerbatimStore,
 } from "../src/index.js";
 import { assertClassificationComplete } from "../src/validate.js";
 import { FIXTURE_PATH, buildFixture } from "../fixtures/build-fixture.js";
@@ -34,8 +36,16 @@ describe("store / field classification", () => {
     expect(Object.keys(DEFERRED_STORES)).not.toContain("millingJobs");
   });
 
+  it("every imported store has a field list — except the verbatim ones, which are exactly the settings bag (`business`)", () => {
+    const withFields = new Set(Object.keys(FIELD_CLASSES));
+    const imported = Object.keys(IMPORTED_STORES);
+    expect(imported.filter((s) => !withFields.has(s))).toEqual([...VERBATIM_STORES]);
+    expect([...VERBATIM_STORES]).toEqual(["business"]);
+    expect(Object.keys(DEFERRED_STORES)).not.toContain("business");
+  });
+
   it("no field is classified twice within a store", () => {
-    for (const store of Object.keys(FIELD_CLASSES) as ImportedStore[]) {
+    for (const store of Object.keys(FIELD_CLASSES) as Exclude<ImportedStore, VerbatimStore>[]) {
       const c = FIELD_CLASSES[store];
       const keys = [...c.mapped, ...c.docOnly.flatMap((g) => g.keys), ...c.ignored.flatMap((g) => g.keys)];
       expect(keys.filter((k, i) => keys.indexOf(k) !== i), store).toEqual([]);

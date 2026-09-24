@@ -40,6 +40,8 @@ export const regions = pgTable("regions", {
   active: boolean("active").notNull().default(true),
   createdAt: createdAt(),
   legacyDoc: legacyDoc(),
+  /** Folded "اردو English" (the legacy `regionTxt`), for payment search. Generated: never written by the app. */
+  searchText: text("search_text").generatedAlwaysAs(sql`fold_search(COALESCE(name_ur, '') || ' ' || name_en)`),
 });
 
 export const warehouses = pgTable("warehouses", {
@@ -73,6 +75,10 @@ export const suppliers = pgTable("suppliers", {
   active: boolean("active").notNull().default(true),
   createdAt: createdAt(),
   legacyDoc: legacyDoc(),
+  /** Folded searchable text of the supplier's CURRENT details (payment search). Generated: never written by the app. */
+  searchText: text("search_text").generatedAlwaysAs(
+    sql`search_join(company_name, legacy_doc->>'cp', phone, search_compact(phone), legacy_doc->>'lo')`,
+  ),
 });
 
 export const customers = pgTable("customers", {
@@ -91,6 +97,21 @@ export const customers = pgTable("customers", {
   active: boolean("active").notNull().default(true),
   createdAt: createdAt(),
   legacyDoc: legacyDoc(),
+  /** Folded searchable text of the shop's CURRENT details (payment search); its region is added from regions.search_text. Generated. */
+  searchText: text("search_text").generatedAlwaysAs(
+    sql`search_join(shop_name, owner_name, legacy_doc->>'nameUr', phone, search_compact(phone), legacy_doc->>'wa', legacy_code)`,
+  ),
+});
+
+/**
+ * The legacy `business` settings document (~60 keys: name, address, phones, prefixes, terms, ...), loaded VERBATIM by
+ * the importer (S4). It is a settings bag the app reads whole, so there is no per-field mapping; the API exposes a
+ * whitelist of display fields only (`GET /company`), never this blob. Never holds a credential (the importer refuses).
+ */
+export const companyProfile = pgTable("company_profile", {
+  id: text("id").primaryKey(),
+  doc: jsonb("doc").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 /* ── users, sessions, RBAC ────────────────────────────────────────────── */
@@ -235,6 +256,8 @@ export const invoices = pgTable(
     status: text("status").notNull().default("DRAFT"),
     createdAt: createdAt(),
     legacyDoc: legacyDoc(),
+    /** Folded number and its compact form, so a payment can be found by the invoice it was applied to. Generated. */
+    searchNumber: text("search_number").generatedAlwaysAs(sql`search_join(invoice_number, search_compact(invoice_number))`),
   },
   (t) => [
     index("invoices_invoice_number_idx").on(t.invoiceNumber),
@@ -254,6 +277,8 @@ export const purchases = pgTable(
     status: text("status").notNull().default("DRAFT"),
     createdAt: createdAt(),
     legacyDoc: legacyDoc(),
+    /** Folded number and its compact form (see invoices.search_number). Generated. */
+    searchNumber: text("search_number").generatedAlwaysAs(sql`search_join(purchase_number, search_compact(purchase_number))`),
   },
   (t) => [
     index("purchases_purchase_number_idx").on(t.purchaseNumber),
@@ -281,6 +306,11 @@ export const payments = pgTable(
     status: text("status").notNull().default("POSTED"), // POSTED | REVERSED
     receiptNumber: text("receipt_number").notNull().unique(),
     receivedBy: text("received_by"),
+    /** What was printed on the voucher, frozen at creation (legacy `partyNameSnapshot` etc., S4): a later rename of
+     *  the shop does not change an old receipt. Receipts print these; search matches these AND the party's current name. */
+    partyNameSnapshot: text("party_name_snapshot"),
+    partyOwnerSnapshot: text("party_owner_snapshot"),
+    regionSnapshot: text("region_snapshot"),
     createdAt: createdAt(),
     /** Who recorded / reversed the voucher (S3). Null on imported rows: the legacy app stored a display name, kept in `received_by`. */
     createdBy: uuid("created_by").references(() => users.id),
@@ -290,6 +320,18 @@ export const payments = pgTable(
     /** Client-chosen key that makes a create request safe to repeat (the legacy app had no guard against a double-clicked Save). */
     idempotencyKey: text("idempotency_key").unique(),
     legacyDoc: legacyDoc(),
+    /* Folded text of each searchable field of the voucher — the legacy `build()` index, kept by Postgres itself
+       (GENERATED ... STORED: no triggers, never stale, never written by the app). What a person may type to find a
+       voucher: see apps/api/src/payments/payments.search.ts. The party's CURRENT text and the invoice numbers it was
+       applied to live on customers / suppliers / regions / invoices / purchases (same kind of column). */
+    searchNumber: text("search_number").generatedAlwaysAs(sql`search_join(receipt_number, search_compact(receipt_number))`),
+    searchParty: text("search_party").generatedAlwaysAs(sql`search_join(party_name_snapshot, party_owner_snapshot, region_snapshot)`),
+    searchReference: text("search_reference").generatedAlwaysAs(sql`search_join(reference, search_compact(reference))`),
+    searchAmount: text("search_amount").generatedAlwaysAs(sql`search_amount_text(amount_p)`),
+    searchDate: text("search_date").generatedAlwaysAs(sql`search_date_text(payment_date)`),
+    searchOther: text("search_other").generatedAlwaysAs(
+      sql`search_join(note, legacy_doc->>'description', method, received_by, CASE WHEN direction = 'IN' THEN 'Received from shop' WHEN party_type = 'CUSTOMER' THEN 'Paid to shop' ELSE 'Paid to supplier' END, CASE WHEN direction = 'IN' THEN 'receipt' WHEN party_type = 'CUSTOMER' THEN 'refund voucher' ELSE 'voucher' END, CASE WHEN status = 'REVERSED' THEN 'reversed cancelled ' || COALESCE(reverse_reason, '') END)`,
+    ),
   },
   (t) => [
     check("payments_direction_chk", sql`${t.direction} IN ('IN', 'OUT')`),

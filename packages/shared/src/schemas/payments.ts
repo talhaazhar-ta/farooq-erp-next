@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isValidBusinessDate } from "../dates.js";
+import { MAX_AMOUNT_P } from "../money.js";
 
 /**
  * Payments (S3). Request and response shapes shared by apps/api and (from S4) apps/web.
@@ -9,9 +10,6 @@ import { isValidBusinessDate } from "../dates.js";
  * - Every request object is `.strict()`: unknown fields are rejected, not ignored.
  * - The user-facing wording of the rules is the legacy wording, kept verbatim (S4 shows it).
  */
-
-/** Sanity cap on a single amount: 10^13 paisa = 10^11 rupees. Far above any real voucher, far below 2^53. */
-export const MAX_AMOUNT_P = 10_000_000_000_000;
 
 export const PAYMENT_MESSAGES = {
   amount: "Enter an amount greater than zero.",
@@ -109,24 +107,58 @@ export const PAYMENT_DIRECTIONS = ["IN", "OUT"] as const;
 export const PAYMENT_PARTY_TYPES = ["CUSTOMER", "SUPPLIER"] as const;
 export const PAYMENT_STATUSES = ["POSTED", "REVERSED"] as const;
 
+/** A query-string value that may arrive as an empty string (an untouched form field): treated as absent. */
+const blankIsAbsent = <T extends z.ZodTypeAny>(schema: T) => z.preprocess((v) => (v === "" ? undefined : v), schema.optional());
+
+/** The three kinds of payment the screen groups by (legacy `dirOf`); a REVERSED voucher is one of them too, but has its own facet. */
+export const PAYMENT_KINDS = ["received", "paidToShops", "paidToSuppliers"] as const;
+export type PaymentKind = (typeof PAYMENT_KINDS)[number];
+
+/** `direction` accepts S3's IN / OUT as well as the S4 kinds; `all` (or absent) means no filter. */
+export const PAYMENT_DIRECTION_FILTERS = ["all", "IN", "OUT", ...PAYMENT_KINDS] as const;
+export const PAYMENT_SEARCH_SCOPES = ["all", "number", "party", "reference", "invoice", "amount", "notes"] as const;
+export type PaymentSearchScope = (typeof PAYMENT_SEARCH_SCOPES)[number];
+export const PAYMENT_SORTS = ["newest", "oldest", "high", "low"] as const;
+export type PaymentSort = (typeof PAYMENT_SORTS)[number];
+
+const paisaBound = z.coerce.number().int().min(0).max(MAX_AMOUNT_P);
+
+/** Filters shared by the list and the CSV export (the CSV has no paging). */
+export const paymentFilterShape = {
+  /** The raw text of the search box: words (AND, any order) and dates are read from it by the server. */
+  q: blankIsAbsent(z.string().max(200)),
+  scope: blankIsAbsent(z.enum(PAYMENT_SEARCH_SCOPES)),
+  direction: blankIsAbsent(z.enum(PAYMENT_DIRECTION_FILTERS)),
+  partyType: blankIsAbsent(z.enum(PAYMENT_PARTY_TYPES)),
+  partyId: blankIsAbsent(uuid),
+  status: blankIsAbsent(z.enum(PAYMENT_STATUSES)),
+  method: blankIsAbsent(z.string().max(40)),
+  regionId: blankIsAbsent(uuid),
+  from: blankIsAbsent(businessDate),
+  to: blankIsAbsent(businessDate),
+  minP: blankIsAbsent(paisaBound),
+  maxP: blankIsAbsent(paisaBound),
+  sort: blankIsAbsent(z.enum(PAYMENT_SORTS)),
+};
+
 export const listPaymentsQuerySchema = z
   .object({
-    q: z.string().trim().max(100).optional(),
-    direction: z.enum(PAYMENT_DIRECTIONS).optional(),
-    partyType: z.enum(PAYMENT_PARTY_TYPES).optional(),
-    partyId: uuid.optional(),
-    status: z.enum(PAYMENT_STATUSES).optional(),
-    from: businessDate.optional(),
-    to: businessDate.optional(),
-    limit: z.coerce.number().int().min(1).max(200).default(50),
-    offset: z.coerce.number().int().min(0).max(1_000_000).default(0),
+    ...paymentFilterShape,
+    limit: z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().int().min(1).max(200).default(50)),
+    offset: z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().int().min(0).max(1_000_000).default(0)),
   })
   .strict();
 export type ListPaymentsQuery = z.infer<typeof listPaymentsQuerySchema>;
 
+/** `GET /payments/export.csv`: the same filters as the list, no paging — every match is exported. */
+export const exportPaymentsQuerySchema = z.object(paymentFilterShape).strict();
+export type ExportPaymentsQuery = z.infer<typeof exportPaymentsQuerySchema>;
+
 export const partyLookupQuerySchema = z
   .object({
     q: z.string().trim().max(100).optional(),
+    /** Customers only: keep shops of this region. */
+    regionId: blankIsAbsent(uuid),
     limit: z.coerce.number().int().min(1).max(100).default(20),
   })
   .strict();
@@ -148,7 +180,14 @@ export const paymentVoucherSchema = z.object({
   direction: z.enum(PAYMENT_DIRECTIONS),
   partyType: z.enum(PAYMENT_PARTY_TYPES),
   partyId: z.string().uuid(),
+  /** The party's CURRENT name (a rename shows here). What was printed on the voucher is `partyNameSnapshot`. */
   partyName: z.string().nullable(),
+  /** received / paidToShops / paidToSuppliers — whatever the status (a reversed voucher keeps its kind). */
+  kind: z.enum(PAYMENT_KINDS),
+  /** Snapshots taken when the voucher was made (legacy `partyNameSnapshot` …): receipts print these. */
+  partyNameSnapshot: z.string().nullable(),
+  partyOwnerSnapshot: z.string().nullable(),
+  regionSnapshot: z.string().nullable(),
   isRefund: z.boolean(),
   amountP: z.number().int(),
   method: z.string().nullable(),
@@ -171,14 +210,48 @@ export type PaymentVoucher = z.infer<typeof paymentVoucherSchema>;
 
 export const paymentListItemSchema = paymentVoucherSchema.extend({
   allocationCount: z.number().int(),
+  /** The invoice / purchase numbers this voucher was applied to, oldest document first (empty = on account). */
+  appliedTo: z.array(z.string()),
+  /** The shop's CURRENT region (null for a supplier, or a shop with none). */
+  regionId: z.string().uuid().nullable(),
+  regionName: z.string().nullable(),
 });
 export type PaymentListItem = z.infer<typeof paymentListItemSchema>;
 
+/** How the server read the search box, said out loud (never a quietly empty list). */
+export const searchInterpretationSchema = z.object({
+  /** The folded words that must all be found. */
+  terms: z.array(z.string()),
+  /** Dates found in the box; they REPLACE the from / to filter. `src` is what was typed; `dayFirst` marks a day / month / year reading. */
+  dates: z.array(z.object({ label: z.string(), from: z.string(), to: z.string(), src: z.string(), dayFirst: z.boolean() })),
+  /** True when from / to were also given and a typed date replaced them. */
+  dateFilterReplaced: z.boolean(),
+  /** Inputs that can never match (From after To, minimum above maximum): the list is empty on purpose. */
+  problems: z.array(z.string()),
+});
+export type SearchInterpretation = z.infer<typeof searchInterpretationSchema>;
+
+export const paymentFacetSchema = z.object({ count: z.number().int(), totalP: z.number().int() });
+export const paymentFacetsSchema = z.object({
+  received: paymentFacetSchema,
+  paidToShops: paymentFacetSchema,
+  paidToSuppliers: paymentFacetSchema,
+  /** A reversed voucher counts here only, in no other facet, and in no total. */
+  reversed: paymentFacetSchema,
+});
+export type PaymentFacets = z.infer<typeof paymentFacetsSchema>;
+
 export const paymentListResponseSchema = z.object({
   items: z.array(paymentListItemSchema),
+  /** Matches of ALL the filters (what paging walks through). */
   total: z.number().int(),
   limit: z.number().int(),
   offset: z.number().int(),
+  interpreted: searchInterpretationSchema,
+  /** Counts and sums by kind under every filter EXCEPT direction / status, so tabs can show them. */
+  facets: paymentFacetsSchema,
+  /** Every payment on file, unfiltered ("12 of 340 match"). */
+  onFile: z.number().int(),
 });
 export type PaymentListResponse = z.infer<typeof paymentListResponseSchema>;
 
@@ -201,6 +274,8 @@ export const partyLookupItemSchema = z.object({
   contact: z.string().nullable(),
   phone: z.string().nullable(),
   region: z.string().nullable(),
+  /** Customers only (suppliers have no region). */
+  regionId: z.string().uuid().nullable(),
   active: z.boolean(),
 });
 export type PartyLookupItem = z.infer<typeof partyLookupItemSchema>;

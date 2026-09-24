@@ -10,6 +10,7 @@ import {
   paymentMemo,
   paymentReversalMemo,
   payments,
+  regions,
   postJournalEntry,
   replaceEntryLines,
   reversedLines,
@@ -67,6 +68,15 @@ const rupees = (paisa: number): string =>
 /** Empty / whitespace-only optional text is stored as null. */
 const blankToNull = (v: string | undefined): string | null => (v && v.trim() !== "" ? v.trim() : null);
 
+/** What is printed on the voucher about the party, frozen at creation (legacy `partyNameSnapshot` / `partyOwnerSnapshot` / `regionSnapshot`). */
+interface PartySnapshot {
+  name: string;
+  owner: string | null;
+  region: string | null;
+}
+
+const cleanText = (v: unknown): string | null => (typeof v === "string" && v.trim() !== "" ? v.trim() : null);
+
 interface Allocation {
   documentId: string;
   amountP: number;
@@ -92,7 +102,7 @@ export class PaymentsService {
 
   async receive(input: ReceivePaymentInput, actor: Actor): Promise<WriteResult> {
     return this.create(input.idempotencyKey, actor, async (tx, today) => {
-      const [shop] = await tx.select({ id: customers.id, name: customers.shopName }).from(customers).where(eq(customers.id, input.customerId)).limit(1);
+      const shop = await this.loadShop(tx, input.customerId);
       if (!shop) throw new BusinessRuleError([PAYMENT_MESSAGES.chooseShop]);
 
       const allocations = input.allocations?.length
@@ -103,7 +113,7 @@ export class PaymentsService {
         direction: "IN",
         partyType: "CUSTOMER",
         partyId: shop.id,
-        partyName: shop.name,
+        snapshot: shop.snapshot,
         amountP: input.amountP,
         common: input,
       });
@@ -115,7 +125,7 @@ export class PaymentsService {
         receiptNumber: payment.receiptNumber,
         amountP: input.amountP,
         method: payment.method,
-        party: shop.name,
+        party: shop.snapshot.name,
         allocations: allocations.map((a) => ({ invoiceId: a.documentId, amountP: a.amountP })),
       });
       return payment.id;
@@ -126,7 +136,7 @@ export class PaymentsService {
 
   async pay(input: PayPaymentInput, actor: Actor): Promise<WriteResult> {
     return this.create(input.idempotencyKey, actor, async (tx, today) => {
-      const [sup] = await tx.select({ id: suppliers.id, name: suppliers.companyName }).from(suppliers).where(eq(suppliers.id, input.supplierId)).limit(1);
+      const [sup] = await tx.select({ id: suppliers.id, name: suppliers.companyName, doc: suppliers.legacyDoc }).from(suppliers).where(eq(suppliers.id, input.supplierId)).limit(1);
       if (!sup) throw new BusinessRuleError([PAYMENT_MESSAGES.chooseSupplier]);
 
       const allocations = input.allocations?.length ? await this.checkPurchaseAllocations(tx, input.supplierId, input.amountP, input.allocations) : [];
@@ -135,7 +145,8 @@ export class PaymentsService {
         direction: "OUT",
         partyType: "SUPPLIER",
         partyId: sup.id,
-        partyName: sup.name,
+        // the legacy printed the supplier's contact person (`cp`) as the "owner" line and no region
+        snapshot: { name: sup.name, owner: cleanText((sup.doc as { cp?: unknown } | null)?.cp), region: null },
         amountP: input.amountP,
         common: input,
       });
@@ -158,14 +169,14 @@ export class PaymentsService {
 
   async refund(input: RefundPaymentInput, actor: Actor): Promise<WriteResult> {
     return this.create(input.idempotencyKey, actor, async (tx, today) => {
-      const [shop] = await tx.select({ id: customers.id, name: customers.shopName }).from(customers).where(eq(customers.id, input.customerId)).limit(1);
+      const shop = await this.loadShop(tx, input.customerId);
       if (!shop) throw new BusinessRuleError([PAYMENT_MESSAGES.chooseShop]);
 
       const payment = await this.insertVoucher(tx, actor, today, {
         direction: "OUT",
         partyType: "CUSTOMER",
         partyId: shop.id,
-        partyName: shop.name,
+        snapshot: shop.snapshot,
         amountP: input.amountP,
         common: input,
       });
@@ -173,7 +184,7 @@ export class PaymentsService {
         receiptNumber: payment.receiptNumber,
         amountP: input.amountP,
         method: payment.method,
-        party: shop.name,
+        party: shop.snapshot.name,
       });
       return payment.id;
     });
@@ -292,6 +303,19 @@ export class PaymentsService {
     return { payment: await this.detail(outcome.id, actor), replayed: outcome.replayed };
   }
 
+  /** The shop and what its voucher will print about it: name, owner, and the region as "اردو — English" (the legacy format). */
+  private async loadShop(tx: Tx, id: string): Promise<{ id: string; snapshot: PartySnapshot } | null> {
+    const [row] = await tx
+      .select({ id: customers.id, name: customers.shopName, owner: customers.ownerName, regionEn: regions.nameEn, regionUr: regions.nameUr })
+      .from(customers)
+      .leftJoin(regions, eq(customers.regionId, regions.id))
+      .where(eq(customers.id, id))
+      .limit(1);
+    if (!row) return null;
+    const region = row.regionEn ? (row.regionUr ? `${row.regionUr} — ${row.regionEn}` : row.regionEn) : null;
+    return { id: row.id, snapshot: { name: row.name, owner: cleanText(row.owner), region } };
+  }
+
   private async detail(id: string, actor: Actor): Promise<PaymentDetail> {
     const d = await loadPaymentDetail(this.db, id, actor.role);
     if (!d) throw new Error(`Payment ${id} vanished after commit`);
@@ -313,7 +337,7 @@ export class PaymentsService {
       direction: "IN" | "OUT";
       partyType: "CUSTOMER" | "SUPPLIER";
       partyId: string;
-      partyName: string;
+      snapshot: PartySnapshot;
       amountP: number;
       common: { method?: string | undefined; reference?: string | undefined; note?: string | undefined; date?: string | undefined; idempotencyKey?: string | undefined };
     },
@@ -337,6 +361,9 @@ export class PaymentsService {
         status: "POSTED",
         receiptNumber,
         receivedBy: actor.name,
+        partyNameSnapshot: v.snapshot.name,
+        partyOwnerSnapshot: v.snapshot.owner,
+        regionSnapshot: v.snapshot.region,
         createdBy: actor.id,
         idempotencyKey: v.common.idempotencyKey ?? null,
       })

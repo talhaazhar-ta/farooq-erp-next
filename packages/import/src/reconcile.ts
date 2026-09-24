@@ -64,6 +64,7 @@ const LOADED_COUNT_SQL: Record<string, string> = {
   sequences: "SELECT count(*) AS n FROM sequences",
   accountAdjustments: "SELECT count(*) AS n FROM account_adjustments",
   millingJobs: "SELECT count(*) AS n FROM milling_jobs",
+  business: "SELECT count(*) AS n FROM company_profile",
 };
 
 /** 0 when the backup reconciles to the paisa, 1 otherwise — the CLI's process exit code. */
