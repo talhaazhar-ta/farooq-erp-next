@@ -98,6 +98,9 @@ describe("`actions` — what this role may do now, and the server's own reason w
     const d = await post(h, sales, invBody(s.shop.id, s.wh.id, [{ productId: s.product.id, quantity: 1, unitPriceP: 1_000 }], { mode: "draft" }));
     const a = (await get(h, sales, d.body.id)).body.actions;
     expect(a.edit.allowed).toBe(true);
+    expect(a.cancel).toEqual({ allowed: true, reason: null }); // SALES may discard a draft ...
+    const posted = await mkPosted(h, owner, s, { qty: 1, unitPriceP: 1_000 });
+    expect((await get(h, sales, posted.id)).body.actions.cancel.allowed).toBe(false); // ... not cancel a posted invoice
     const own = (await get(h, owner, d.body.id)).body.actions;
     expect(own.changeShop).toEqual({ allowed: false, reason: "This invoice is still a draft — edit it and pick the other shop." });
 

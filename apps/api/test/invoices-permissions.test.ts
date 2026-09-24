@@ -66,6 +66,15 @@ describe("permission matrix", () => {
     }
   });
 
+  it("POST /invoices/:id/cancel on a DRAFT: SALES_CREATE or TRANSACTION_CORRECT (owner decision 2026-09-24) — everyone but INVENTORY", async () => {
+    const DISCARDERS: Role[] = ["OWNER", "MANAGER", "ACCOUNTANT", "SALES"];
+    for (const role of ROLES) {
+      const s = await scenario(h);
+      const d = await post(h, sessions.OWNER, invBody(s.shop.id, s.wh.id, [{ productId: s.product.id, quantity: 1, unitPriceP: 1_000 }], { mode: "draft" }));
+      okOrRefused(role, DISCARDERS, (await cancel(h, sessions[role], d.body.id)).status, [200]);
+    }
+  });
+
   it("POST /invoices/:id/duplicate: SALES_CREATE", async () => {
     for (const role of ROLES) {
       const s = await scenario(h);

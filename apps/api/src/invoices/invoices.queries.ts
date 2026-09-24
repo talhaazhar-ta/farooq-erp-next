@@ -187,7 +187,7 @@ async function actionsFor(db: Executor, inv: InvoiceRow, role: Role): Promise<In
   }
 
   let cancel: InvoiceAction;
-  if (!can("TRANSACTION_CORRECT")) cancel = refused(INVOICE_MESSAGES.noPermissionCorrect);
+  if (!can("TRANSACTION_CORRECT") && !(inv.status === "DRAFT" && can("SALES_CREATE"))) cancel = refused(INVOICE_MESSAGES.noPermissionCorrect);
   else {
     const why = await cancelRefusal(db, rules);
     cancel = why ? refused(why) : allowed;

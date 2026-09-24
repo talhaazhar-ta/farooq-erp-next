@@ -211,13 +211,43 @@ describe("cancel — refused with a return; drafts; migrated invoices", () => {
   });
 });
 
-describe("cancel — who may (TRANSACTION_CORRECT)", () => {
-  it("SALES cannot cancel (403, nothing changes); the ACCOUNTANT can", async () => {
+describe("cancel — who may (TRANSACTION_CORRECT for a posted invoice; SALES_CREATE or TRANSACTION_CORRECT for a draft)", () => {
+  it("SALES cannot cancel a POSTED invoice (403, nothing changes, the message names the permission); the ACCOUNTANT can", async () => {
     const s = await scenario(h);
     const inv = await mkPosted(h, owner, s, { qty: 1, unitPriceP: 1_000 });
     const no = await cancel(h, sales, inv.id);
     expect(no.status).toBe(403);
+    expect(no.body.message).toBe("You do not have permission to edit a posted invoice, cancel it or change its shop.");
     expect((await get(h, owner, inv.id)).body.status).toBe("CONFIRMED");
     expect((await cancel(h, accountant, inv.id)).status).toBe(200);
+  });
+
+  it("SALES can discard a DRAFT (its own or another's): nothing but the status changes; the same person still cannot cancel it after posting", async () => {
+    const s = await scenario(h);
+    const d = await post(h, sales, invBody(s.shop.id, s.wh.id, [{ productId: s.product.id, quantity: 3, unitPriceP: 1_000 }], { mode: "draft" }));
+    const r = await cancel(h, sales, d.body.id, "wrong shop");
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ status: "CANCELLED", number: null, cancelReason: "wrong shop" });
+    expect(await movementsOf(h, d.body.id)).toEqual([]);
+    expect(await entriesFor(h.admin, "INVOICE_CANCEL", d.body.id)).toEqual([]);
+    expect(await levelOf(h, s.product.id, s.wh.id)).toBe(100_000);
+    // the draft the OWNER made can be discarded by SALES too
+    const ownerDraft = await post(h, owner, invBody(s.shop.id, s.wh.id, [{ productId: s.product.id, quantity: 1, unitPriceP: 1_000 }], { mode: "draft" }));
+    expect((await cancel(h, sales, ownerDraft.body.id)).status).toBe(200);
+    // once posted, the door closes again
+    const posted = await post(h, sales, invBody(s.shop.id, s.wh.id, [{ productId: s.product.id, quantity: 1, unitPriceP: 1_000 }]));
+    expect(posted.status).toBe(201);
+    expect((await cancel(h, sales, posted.body.id)).status).toBe(403);
+    expect((await get(h, owner, posted.body.id)).body.status).toBe("CONFIRMED");
+  });
+
+  it("the discard rule does not open the other doors: INVENTORY is refused on a draft; SALES cannot discard an already-cancelled draft (403, not a refusal text)", async () => {
+    const s = await scenario(h);
+    const d = await post(h, owner, invBody(s.shop.id, s.wh.id, [{ productId: s.product.id, quantity: 1, unitPriceP: 1_000 }], { mode: "draft" }));
+    const inventory = await h.session("INVENTORY");
+    expect((await cancel(h, inventory, d.body.id)).status).toBe(403);
+    expect((await get(h, owner, d.body.id)).body.status).toBe("DRAFT");
+    expect((await cancel(h, owner, d.body.id)).status).toBe(200);
+    expect((await cancel(h, sales, d.body.id)).status).toBe(403);
   });
 });

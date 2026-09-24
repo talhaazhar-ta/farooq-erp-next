@@ -62,7 +62,8 @@ export class InvoicesController {
     return (await this.service.save(input, actorOf(user), idOr404(id, INVOICE_MESSAGES.notFound))).invoice;
   }
 
-  @RequirePermission("TRANSACTION_CORRECT")
+  /** Discarding a DRAFT needs SALES_CREATE or TRANSACTION_CORRECT; cancelling a posted invoice TRANSACTION_CORRECT — the service tells which by the invoice's state. */
+  @RequireAnyPermission("SALES_CREATE", "TRANSACTION_CORRECT")
   @HttpCode(200)
   @Post(":id/cancel")
   async cancel(@Param("id") id: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {

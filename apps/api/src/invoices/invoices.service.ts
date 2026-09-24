@@ -125,6 +125,10 @@ export class InvoicesService {
     const outcome = await this.db.transaction(async (tx) => {
       const today = businessDateOf(this.clock.now());
       const inv = await this.lockInvoice(tx, id);
+      // owner decision 2026-09-24: anyone who may create invoices may discard a DRAFT (no stock, journal or money); a posted one needs TRANSACTION_CORRECT
+      if (inv.status === "DRAFT" && roleHasPermission(actor.role, "SALES_CREATE")) {
+        /* allowed */
+      } else requirePermission(actor, "TRANSACTION_CORRECT", INVOICE_MESSAGES.noPermissionCorrect);
       const why = await cancelRefusal(tx, rulesOf(inv));
       if (why) throw new BusinessRuleError([why]);
 
