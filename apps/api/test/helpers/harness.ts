@@ -54,7 +54,7 @@ export interface Harness {
   service: PaymentsService;
   session(role: Role): Promise<Session>;
   actor(s: Session): Actor;
-  request(as: Session | null, method: "GET" | "POST", url: string, opts?: { body?: unknown; csrf?: boolean | string }): Promise<{ status: number; body: any; headers: Record<string, unknown> }>;
+  request(as: Session | null, method: "GET" | "POST" | "PUT", url: string, opts?: { body?: unknown; csrf?: boolean | string }): Promise<{ status: number; body: any; headers: Record<string, unknown> }>;
   seed: Seeder;
   close(): Promise<void>;
 }

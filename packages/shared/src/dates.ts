@@ -30,3 +30,12 @@ export function businessDateOf(now: Date): string {
   const get = (type: string) => parts.find((p) => p.type === type)!.value;
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
+
+/** A business date shifted by whole calendar days (`addDays("2026-03-01", -1)` is "2026-02-28"). Calendar arithmetic in UTC, never `toISOString()` of a local instant. */
+export function addDays(date: string, days: number): string {
+  const m = ISO_DATE.exec(date);
+  if (!m) throw new Error(`Not a business date: ${date}`);
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + days));
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+}

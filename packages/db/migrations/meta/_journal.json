@@ -43,6 +43,13 @@
       "when": 1790223667206,
       "tag": "0005_s6_invoice_lines_stock",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790229796403,
+      "tag": "0006_s7_request_keys",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,90 @@
 # Status
 
-**Last updated:** 2026-09-24, by the **S6 session** (M2 part 1: invoice lines + stock quantities — data model, import, reconciliation). Milestone 1 is complete; **M2 (Invoices) is under way: S6 done, next S7.**
+**Last updated:** 2026-09-24, by the **S7 session** (M2 part 2: the Invoices service + API). Milestone 1 is complete; **M2 (Invoices) is under way: S6 and S7 done, next S8.**
+
+## S7 — what was done (M2 part 2: the Invoices service + API)
+
+Server side only — **no screen changed** (S9). A person with the right role can now, through the HTTP API, save many drafts, post an invoice (number, lines, stock, journal, money taken at the sale — one transaction), edit a posted
+invoice as a net correction, cancel, duplicate and change shop, with the legacy messages verbatim and the owner's three decisions enforced. The live ERP is untouched; nothing is deployed.
+
+- **`apps/api/src/invoices/`** — `invoices.service.ts` (save / cancel / duplicate / changeShop, each ONE transaction), `validate.ts` (`Validate.invoice`, pure), `rules.ts` (what stops an edit / cancel / move — used by the service AND by the read model's `actions`),
+  `stock.ts` (level locking in a fixed order, movement + level in one step, `costOf` / `carriedCost` as reads, the `allowNegativeStock` setting), `invoices.queries.ts` (detail, product picker, warehouses), `invoices.controller.ts` (+ `InvoiceLookupsController`).
+- **API:** `POST /invoices` (`mode: draft | post`), `PUT /invoices/:id` (edit a draft, post a draft, edit a posted invoice — needs the `revision` the client loaded), `POST /invoices/:id/{cancel,duplicate,change-shop}`, `GET /invoices/:id`
+  (header, shop snapshots, lines, receipts, stock movements, `actions {edit, cancel, changeShop, duplicate}` each `{allowed, reason}`), `GET /products?q&warehouseId&limit`, `GET /warehouses`. Shapes and the legacy wording are in
+  `packages/shared/src/schemas/invoices.ts` (`INVOICE_MESSAGES`, `saveInvoiceSchema`, `invoiceDetailSchema`, …). Every request is `.strict()`; refusals are 422 `{message, errors}`.
+- **Shared receive core (planner decision 7):** the write half of `PaymentsService.receive` moved, unchanged, to `apps/api/src/payments/receipt-core.ts` (`writeReceipt`, `loadShop`, `insertVoucher`, allocation checks). `PaymentsService.receive`
+  and an invoice saved with money taken both call it; **S3's tests pass unchanged**.
+- **`@farooq/db` `ledger.ts`:** `INVOICE_CANCEL_SOURCE`, `invoiceCancelLines`, `invoiceCancelMemo`, `setEntryDate`. **Migration `0006`** adds `request_keys` (idempotency for invoice saves — an invoice edit has no row of its own to carry a key); the importer wipes it with the business tables.
+- **Statements:** a CANCELLED invoice and its `INVOICE_CANCEL` entry are both left out (like a reversed voucher); `omittedCancelled` added to the statement response **additively** (S5 screens unaffected). The importer's independent statement builder in the reconciliation got the same rule.
+- **`@farooq/shared`:** `addDays` (calendar arithmetic on business dates) for "the day before the invoice date".
+
+### The rules as built (details in `docs/PARITY.md` → "Invoices service — ported in S7")
+
+Post: number `INV-<current business year>-<6>` from the live counter, gap-free; lines with product snapshots and `cost_snapshot_p` (`costOf` read); `SALE_OUT` per line and the level, one `INVOICE` journal entry, `previous_balance_p` = the shop's live balance at posting (frozen after),
+receipt for the paid amount through the shared receive core (dated the invoice date, note "Received with invoice N"), audit `Invoice created`. Drafts: any number, no number / stock / journal / payment. Edit posted: movements for the DIFFERENCE per product × godown
+(`INVOICE_EDIT`, invoice date), the one journal entry rewritten (amount and date), snapshots re-taken, line ids kept; refused when cancelled, a return or dispatch exists, the shop differs, back to draft, or the revision is stale; raising `paid` takes a receipt for the difference,
+lowering it below what is received is refused naming the receipt. Cancel: stock back (Σ qty per product × godown, `INVOICE_CANCEL`, dated today), an `INVOICE_CANCEL` entry dated the invoice's own date; refused while money received against it stands (owner decision 1) or a return exists.
+Change shop: `reassignCheck` messages verbatim, receipts wholly applied move with it, `previous_balance_p` = the new shop's balance the day before. Migrated invoices never get stock movements on edit or cancel.
+
+### S7 verification
+
+`pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm e2e` all green locally, 0 lint warnings. **`pnpm test`: 844 tests** (687 before S7): `packages/shared` **134** (+2 `addDays`), `apps/web` 62, `packages/import` 224, `apps/api` **424** (+155, all in the new files below).
+**`pnpm e2e`: 70 passed** (2.7 min, unchanged — S7 has no screen). 222 of the import tests run in CI (2 real-backup tests skip without `data/`).
+
+| new file (apps/api/test) | tests | what it pins |
+|---|---|---|
+| `invoices-validate` | 22 | every `Validate.invoice` message verbatim and in the legacy order; stricter rules (negative discounts / charges, > 3 decimals, per product × godown totalled stock check, absurd sizes) |
+| `invoices-post` | 25 | hand-computed post (2,742,500), status, numbering (gap-free, year), past date, previous balance, snapshots, many drafts, draft edit / post, refusals write nothing, `allowNegativeStock`, payment at sale, rollback of the whole invoice when the receipt fails, idempotency |
+| `invoices-edit` | 30 | UP / DOWN / per-pair / swapped product net movements, own bags counted back, date change, frozen previous balance, re-taken snapshots, stable line ids, the money rules (extra receipt, lowering refused, `PAYMENT_CREATE` 403), every refusal, stale / missing revision, foreign line id, replayed PUT, role gates, migrated and imported invoices |
+| `invoices-cancel` | 12 | hand-computed cancel (stock today, journal on the invoice's date, both entries), statement omission + `omittedCancelled` windowing, per product × godown restock, refusal with receipts (and after reversing them) / with a return, drafts, importer-made and migrated invoices, roles |
+| `invoices-change-shop` | 16 | the legacy 91-check spec's cases (A1-A12, B0-B6, C1-C12, D10, G3, R3, X1-X4) |
+| `invoices-reads-duplicate` | 16 | detail schema, cost hidden without `PROFIT_VIEW`, `actions` matrix by role and state, duplicate (3), product picker (words, warehouse-first, price hints, roles), warehouses |
+| `invoices-cost` | 10 | every branch of `costOf` / `carriedCost` by hand, line snapshot from the LINE's godown, `avg_cost_p` never written |
+| `invoices-permissions` | 9 | every endpoint × all five roles, 401 without a session or CSRF token, cross-check with the shared permission model |
+| `invoices-concurrency` | 7 | two saves racing for the last bags, six racing for ten, opposite line orders (no deadlock), consecutive numbers, one idempotency key = one invoice, two editors of one revision, receipt vs edit |
+| `invoices-ledger-bridge` | 8 | see below |
+
+**Ledger bridge** (`invoices-ledger-bridge`): import the fixture; 11 scripted operations through the HTTP API (post with money, post fractional, edit up with a raised paid, edit down, post + cancel, change shop of an unpaid invoice, change shop of a two-receipt invoice, duplicate → post, a two-godown taxed sale paid in full, a draft);
+the same operations applied by hand to the legacy JSON (the legacy way: reverse + re-deduct on edit); **`LegacyLedger` = the journal for all 6 shops and 5 suppliers**; hand-computed final receivables (c1 1,900,000, c2 100,000, c3 470,000, c4 100,000, c5 450,000, c6 1,280,000; Σ 4,300,000 = 2,935,000 + 1,964,000 invoiced − 599,000 received) and bags
+(p-1 74.5 / 30, p-2 50, p-3 38, damaged 0.6 untouched); levels = Σ movements; trial balance zero; each posted invoice has exactly one `INVOICE` entry (a cancelled one also one `INVOICE_CANCEL`); the real `reconcile()` reports 0 balance, statement, invoice-total, stock and invoice ↔ stock differences.
+The one deliberate count difference: 35 movement documents in the legacy-shaped JSON vs 33 rows (an edit posts the difference where the legacy reversed and re-deducted).
+
+**Mutation checks** (broke the rule, confirmed red, restored, re-ran green — 16 of 16 caught by the named file): edit posts the full new quantity instead of the difference (8 red); cancel journal dated today (3); stock check per line not totalled (1); own bags not counted back (1); cancel allowed with money received (2);
+change shop leaves receipts behind (2); migrated invoice gets stock movements (2); idempotency key never matches (1); previous balance re-taken on edit (2); stock rows not locked (1 — the last-bags race); statements keep a cancelled invoice (3); stale revision accepted (1); cancel forgets to restock (5);
+returned invoice still editable (1); `paid` lowerable below the receipts (1); cost falls straight to the list price (1). (One mutation was left applied in `rules.ts` by an interrupted run of my mutation script; found by `grep`, restored, and re-run before the final test run.)
+
+**Real backups** (throwaway Postgres, `runImport` + `reconcile`, unchanged by S7 — the importer / reconciliation gained only the cancelled-invoice statement rule): 2026-09-23 nightly — 409 / 35 parties, **0** balance differences; trial balance 42 entries BALANCED; 444 statements, 0 mismatches;
+17 invoices / 18 lines / 910 bags, **0** total mismatches; 15 stock rows / 48 movements, **0** mismatches; 17 invoices vs 24 movements, **0** mismatches. 2026-09-22 nightly: identical to S6's figures (0 everywhere).
+
+### S7 deviations from the plan (all deliberate; each has a test)
+
+1. **A draft cannot carry an amount paid** — nothing stores it (`paidAmount` is derived from receipts), so the plain message "Payment can only be taken when the invoice is posted…" is returned instead of silently dropping the figure (the legacy stored it on the draft and used it at confirmation).
+2. **`request_keys` table (migration `0006`)** for idempotency: the plan said "like S3", but S3 keeps its key on the voucher row; an invoice EDIT has no row of its own, and a replayed POST / PUT / duplicate must not repeat the receipt or the stock.
+3. **Duplicate carries a fixed line tax** (the legacy `toDraft` dropped it — a duplicate of a taxed invoice silently lost its tax). `salesperson` and `paymentMethod` are copied as in the legacy.
+4. **"The discount is larger than the line amount" is not printed for a line whose quantity is already invalid** (the legacy printed both for a negative quantity; only noise).
+5. **Change shop refuses a draft** (planner decision; the legacy UI refused, the legacy service did not) with the legacy UI's wording.
+6. **`costOf` step 3** (another godown's recorded average) picks the **lowest godown id**, the legacy took the first in its own iteration order; the legacy's product-wide carried-cost step only applies with no godown, and a line always has one.
+7. **Cancel of a DRAFT needs `TRANSACTION_CORRECT` too** (owner decision 2 taken literally): SALES cannot discard its own draft. **Owner question below.**
+8. **`request.revision` is required on every PUT** (a missing one is refused with its own message) and a NEW invoice starts at revision 1, as the legacy did (`clientRev + 1`).
+9. **The cancel refusal for a dispatched invoice** is NOT applied (owner decision 3 only blocks *edit* once a dispatch exists); cancel is blocked by returns and money only.
+10. `GET /invoices/:id` is readable by `SALES_CREATE | TRANSACTION_CORRECT | COLLECTION_VIEW | FINANCIAL_REPORT_VIEW` (INVENTORY: 403); `/products` and `/warehouses` need `MASTER_DATA_VIEW` (every role has it), cost figures only `PROFIT_VIEW`.
+
+### S7 findings worth knowing
+
+- **The payment-at-sale permission is unreachable through the real role matrix** (every role holding `SALES_CREATE` also holds `PAYMENT_CREATE`); it is defence in depth, and the tests remove the permission from one role in memory to prove the 403.
+- **The receipt shared-code refactor found nothing** — S3's payment tests passed on the first run; the only S3-side change is that the code now lives in `receipt-core.ts`.
+- **A test flake caught by the full run:** the product-search test matched imported real-backup products (an Urdu word, then a bag size "25" appearing inside a random tag). Tags are now letters only and every query carries the unique tag. The lesson (already in CLAUDE.md for other files): tests that read shared tables must scope their query to their own rows.
+- **Editing tools / shell:** heredocs with apostrophes or backticks break the shell tool again (use the Write tool + a script file); `mutate.py` needs `encoding="utf-8"` on Windows; CRLF files (`load.ts`, `reconcile.ts`, `ledger.ts`, `payments.service.ts`) were edited through Python with newline handling or the Edit tool.
+- The invoice **journal is not the source for an invoice list** (S8): it has both entries of a cancelled invoice. Lists use `invoices` + allocations.
+
+### S7 not done / known issues
+
+- No screen, no search / list / CSV / print / profit (S8, S9). `GET /invoices` does not exist yet.
+- Not seen by a person; no real staff use; the API has never been driven from a browser.
+- **Owner question (new):** SALES cannot cancel even its own draft (`TRANSACTION_CORRECT`, decision 2 taken literally) — so a salesperson has no way to discard a draft. Options: let `SALES_CREATE` holders cancel drafts only, or add a delete-draft action. Not changed; S9 should not offer "discard" to SALES until decided.
+- Owner questions from earlier milestones still open (see below).
+- `costOf` reads the movements each time (fine at today's scale — thousands of movements; an index on `(product_id, warehouse_id, bucket)` exists); the legacy capped its in-memory movement list at 8,000 recent rows, this reads all.
+- `stock_levels` rows are created (at zero) for every product × godown a posting touches, as the legacy `Inventory.row` did.
 
 ## S6 — what was done (M2 part 1)
 
@@ -91,11 +175,11 @@ Nothing is deployed; the live ERP is untouched.
 ### Repo layout (as built)
 
 ```
-apps/api         NestJS 11 + Fastify (S1-S4). S5 change: CORS now exposes Content-Disposition (see Findings).
+apps/api         NestJS 11 + Fastify (S1-S4). S5 change: CORS now exposes Content-Disposition (see Findings). S7: src/invoices/ (service, validate, rules, stock, queries, controller), payments/receipt-core.ts.
 apps/web         React 19 + Vite + TanStack Router / Query. src/lib (pure logic + tests), src/components, src/routes. Vitest + Testing Library (S5).
 apps/e2e         NEW (S5). Playwright: setup/ (throwaway Postgres → import → users → built API + built web), tests/*.spec.ts. Gitignored: .run/, e2e-artifacts/.
-packages/shared  Permissions, Zod schemas, business-date helpers, fold / search-query / money; S6: invoice-totals (Calc port).
-packages/db      Drizzle schema, migrations 0000-0005 (S6: invoice lines, stock), client, test harness; ledger.ts + stock.ts.
+packages/shared  Permissions, Zod schemas, business-date helpers (S7: addDays), fold / search-query / money; S6: invoice-totals (Calc port); S7: schemas/invoices.
+packages/db      Drizzle schema, migrations 0000-0006 (S6: invoice lines, stock; S7: request_keys), client, test harness; ledger.ts (S7: INVOICE_CANCEL) + stock.ts.
 packages/import  importer, LegacyLedger, reconciliation (S6: invoice totals + stock checks), fixtures.
 ```
 
@@ -229,4 +313,6 @@ Earlier — **green** on the S5 commit `45fc437`: [run 35952737035](https://gith
 
 ## Next step
 
-**S7 — Invoices service + API** (`docs/sessions/S7.md`, corrected to S6's real schema; the hub should re-read this file and finalise it first). It builds on `invoiceTotals`, `ledger.ts` `invoiceLines`, `stock_levels` / `stock_movements`, the `migrated` flag and the reconciliation checks. Still open from M1: a person walking the screens and printing a receipt, and the owner questions listed above.
+**S8 — invoice search, print model, profit, statement detail (server + shared)** (`docs/sessions/S8.md`, a draft written before S6 / S7 — **its "What S7 actually built" section at the top wins**, the hub should re-read this file and finalise it first).
+It builds on `GET /invoices/:id`, `invoices.search_number`, the `INVOICE_READ_PERMISSIONS` set and the snapshot / cost columns S7 fills. S9 (screens + e2e) follows; its plan got a "What S7 fixed about the write API" section.
+Still open from M1 and S7: a person walking the screens and printing a receipt, and the owner questions above (paper-book figures / cutover date; SALES pay-out; INVENTORY and `/company`; **can SALES discard its own draft?**).

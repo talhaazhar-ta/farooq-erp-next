@@ -15,6 +15,8 @@ import type { Statement, StatementRow, StatementRowKind } from "@farooq/shared";
  *     artefact of missing data, not intent. Closing and end-of-day balances are identical either way.
  *  2. A REVERSED payment / adjustment is omitted with its reversal entry (the legacy statement never shows it);
  *     `omittedReversed` says how many. An edited voucher is one row at its current amount.
+ *  2b. (S7) A CANCELLED invoice is omitted with its INVOICE_CANCEL entry, the same way — the legacy ledger skipped a
+ *     CANCELLED invoice; `omittedCancelled` counts them. The pair nets to zero at every date, so no balance moves.
  *
  * The wording of the descriptions is the legacy `Ledger`'s (02-services.js, 16-khata.js, 32-milling.js). NOT ported: the
  * display-time decoration of 24-client-changes.js (a typed "Description / تفصیل", the auto text "Cash received against
@@ -33,6 +35,7 @@ type RawLine = {
   debit: string;
   credit: string;
   invoice_number: string | null;
+  invoice_status: string | null;
   purchase_number: string | null;
   receipt_number: string | null;
   pay_direction: string | null;
@@ -66,6 +69,8 @@ export interface FullLedger {
   entries: LedgerEntry[];
   /** Dates of the reversed vouchers that were left out (one per voucher). */
   omittedReversedDates: string[];
+  /** Dates of the cancelled invoices that were left out (one per invoice). */
+  omittedCancelledDates: string[];
 }
 
 const withMethod = (label: string, method: string | null): string => (method ? `${label} — ${method}` : label);
@@ -77,6 +82,7 @@ interface Classified {
   omit: boolean;
   isOpening: boolean;
   countsAsOmittedVoucher: boolean;
+  countsAsOmittedCancelled?: boolean;
 }
 
 function classify(r: RawLine): Classified {
@@ -86,7 +92,10 @@ function classify(r: RawLine): Classified {
   });
   switch (t) {
     case "INVOICE":
+      if (r.invoice_status === "CANCELLED") return { ...row("INVOICE", r.invoice_number, ""), omit: true, countsAsOmittedCancelled: true };
       return row("INVOICE", r.invoice_number, "Sales invoice");
+    case "INVOICE_CANCEL":
+      return { ...row("OTHER", null, ""), omit: true };
     case "PURCHASE":
       return row("PURCHASE", r.purchase_number, "Purchase invoice");
     case "PAYMENT": {
@@ -127,13 +136,13 @@ export async function loadFullLedger(db: Executor, partyType: PartyType, partyId
   const lines = await db.execute<RawLine>(sql`
     SELECT e.id AS entry_id, e.date::text AS date, e.created_at, e.source_type, e.source_id::text AS source_id, e.memo,
            l.debit_p::text AS debit, l.credit_p::text AS credit,
-           inv.invoice_number, pur.purchase_number, pay.receipt_number, pay.direction AS pay_direction,
+           inv.invoice_number, inv.status AS invoice_status, pur.purchase_number, pay.receipt_number, pay.direction AS pay_direction,
            pay.party_type AS pay_party_type, pay.method AS pay_method, pay.status AS pay_status,
            ret.return_number, adj.adjustment_number, adj.reason AS adj_reason, adj.status AS adj_status, mj.job_number
     FROM journal_lines l
     JOIN accounts a ON a.id = l.account_id AND a.code = ${account}
     JOIN journal_entries e ON e.id = l.entry_id
-    LEFT JOIN invoices inv ON e.source_type = 'INVOICE' AND inv.id = e.source_id
+    LEFT JOIN invoices inv ON e.source_type IN ('INVOICE', 'INVOICE_CANCEL') AND inv.id = e.source_id
     LEFT JOIN purchases pur ON e.source_type = 'PURCHASE' AND pur.id = e.source_id
     LEFT JOIN payments pay ON e.source_type IN ('PAYMENT', 'PAYMENT_REVERSAL') AND pay.id = e.source_id
     LEFT JOIN returns ret ON e.source_type IN ('CUSTOMER_RETURN', 'SUPPLIER_RETURN') AND ret.id = e.source_id
@@ -143,10 +152,12 @@ export async function loadFullLedger(db: Executor, partyType: PartyType, partyId
 
   const byEntry = new Map<string, LedgerEntry>();
   const omittedReversedDates: string[] = [];
+  const omittedCancelledDates: string[] = [];
   for (const r of lines) {
     const c = classify(r);
     if (c.omit) {
       if (c.countsAsOmittedVoucher) omittedReversedDates.push(r.date);
+      if (c.countsAsOmittedCancelled) omittedCancelledDates.push(r.date);
       continue;
     }
     const debit = Number(r.debit);
@@ -181,7 +192,7 @@ export async function loadFullLedger(db: Executor, partyType: PartyType, partyId
     if (at !== bt) return at - bt;
     return a.entryId < b.entryId ? -1 : a.entryId > b.entryId ? 1 : 0;
   });
-  return { entries, omittedReversedDates };
+  return { entries, omittedReversedDates, omittedCancelledDates };
 }
 
 /** Customers: debit − credit (positive = the shop owes us). Suppliers: credit − debit (positive = we owe them). */
@@ -224,5 +235,6 @@ export function windowStatement(partyType: PartyType, ledger: FullLedger, w: Sta
     });
   }
   const omitted = ledger.omittedReversedDates.filter((d) => (!w.from || d >= w.from) && (!w.to || d <= w.to)).length;
-  return { from: w.from, to: w.to, opening, rows, totals: { debitP, creditP }, closing: balance, omittedReversed: omitted };
+  const omittedCancelled = ledger.omittedCancelledDates.filter((d) => (!w.from || d >= w.from) && (!w.to || d <= w.to)).length;
+  return { from: w.from, to: w.to, opening, rows, totals: { debitP, creditP }, closing: balance, omittedReversed: omitted, omittedCancelled };
 }

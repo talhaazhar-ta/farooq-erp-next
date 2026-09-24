@@ -110,6 +110,8 @@ export const statementSchema = z.object({
   closing: z.number().int(),
   /** Reversed vouchers (payments and adjustments) dated inside the window: both their entries are left out, as in the legacy. */
   omittedReversed: z.number().int(),
+  /** Cancelled invoices (S7) dated inside the window: the invoice's entry and its cancelling entry are both left out (the legacy ledger skipped a CANCELLED invoice). */
+  omittedCancelled: z.number().int().default(0),
 });
 export type Statement = z.infer<typeof statementSchema>;
 

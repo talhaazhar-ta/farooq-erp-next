@@ -262,6 +262,17 @@ export const sequences = pgTable(
   (t) => [primaryKey({ columns: [t.kind, t.year] })],
 );
 
+/* ── request keys (S7) ───────────────────────────────────────────────────
+   Makes an invoice save safe to repeat: the first request with a key writes the invoice and records (key -> invoice);
+   a second request with the same key gets that invoice back and writes nothing. Payments carry their key on the
+   voucher row (S3); an invoice edit has no row of its own to carry one, hence this table. */
+export const requestKeys = pgTable("request_keys", {
+  key: text("key").primaryKey(),
+  kind: text("kind").notNull(),
+  entityId: uuid("entity_id").notNull(),
+  createdAt: createdAt(),
+});
+
 /* ── transaction tables: invoices carry lines since S6; purchases stay header-only until M3 ────────── */
 
 export const invoices = pgTable(

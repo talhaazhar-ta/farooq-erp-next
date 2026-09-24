@@ -121,6 +121,16 @@ export function invoiceMemo(invoiceNumber: string | null | undefined): string {
   return `Sales invoice ${invoiceNumber ?? ""}`.trim();
 }
 
+/** A cancelled invoice keeps its INVOICE entry and gets this one, dated the invoice's own date, so the pair cancels at every date (S7 decision 1; same rule as PAYMENT_REVERSAL). */
+export const INVOICE_CANCEL_SOURCE = "INVOICE_CANCEL";
+
+/** The mirror image of `invoiceLines` — CR RECEIVABLES(shop) / DR SALES. */
+export function invoiceCancelLines(customerId: string, totalP: number): JournalLineDraft[] {
+  return reversedLines(invoiceLines(customerId, totalP));
+}
+
+export const invoiceCancelMemo = (invoiceNumber: string | null | undefined): string => `Cancelled sales invoice ${invoiceNumber ?? ""}`.trim();
+
 /** Whether an invoice with this status is in the ledger (legacy `Ledger`: everything except DRAFT and CANCELLED). */
 export const invoicePosts = (status: string): boolean => status !== "DRAFT" && status !== "CANCELLED";
 
@@ -166,6 +176,11 @@ export async function postJournalEntry(tx: Tx, accountIds: Map<AccountCode, stri
 export async function replaceEntryLines(tx: Tx, accountIds: Map<AccountCode, string>, entryId: string, lines: JournalLineDraft[]): Promise<void> {
   await tx.delete(journalLines).where(eq(journalLines.entryId, entryId));
   await insertLines(tx, accountIds, entryId, lines);
+}
+
+/** Moves an existing entry to another business date (the invoice edit: the legacy ledger reads `invoiceDate` live). */
+export async function setEntryDate(tx: Tx, entryId: string, date: string): Promise<void> {
+  await tx.update(journalEntries).set({ date }).where(eq(journalEntries.id, entryId));
 }
 
 async function insertLines(tx: Tx, accountIds: Map<AccountCode, string>, entryId: string, lines: JournalLineDraft[]): Promise<void> {

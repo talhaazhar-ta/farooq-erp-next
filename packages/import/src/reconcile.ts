@@ -148,7 +148,8 @@ const rowKey = (iso: string, kind: string, ref: string, delta: number) => `${iso
  * Statement order rule for the NEW ledger (defined here, documented in STATUS for S4): rows are ordered by
  * business date, then journal created_at, then entry id. For CUSTOMERS the opening-balance row comes first
  * whatever its date, because the legacy customer statement (16-khata.js) does. Reversed payments/adjustments
- * (and their reversal entries) are omitted from statements, because the legacy statement never shows them.
+ * (and their reversal entries) are omitted from statements, because the legacy statement never shows them; so is a CANCELLED
+ * invoice with its INVOICE_CANCEL entry (S7).
  */
 function orderNewRows(rows: (NewRow & { id: string })[], isCustomer: boolean): NewRow[] {
   return [...rows].sort((a, b) => {
@@ -282,7 +283,7 @@ export async function reconcile(backup: Backup, databaseUrl: string): Promise<Re
       for (const r of await rows) sourceRef.set(r.id as string, { ref: (r[refCol] as string | null) ?? "", kind: kindOf(r), reversed: reversedOf ? reversedOf(r) : false });
     };
     // Keyed by source id; source types never collide because ids are UUIDv5 of "<store>:<legacy id>".
-    await collect(client`SELECT id, invoice_number FROM invoices`, () => "INVOICE", "invoice_number");
+    await collect(client`SELECT id, invoice_number, status FROM invoices`, () => "INVOICE", "invoice_number", (r) => r.status === "CANCELLED");
     await collect(client`SELECT id, purchase_number FROM purchases`, () => "PURCHASE", "purchase_number");
     await collect(client`SELECT id, receipt_number, direction, party_type, status FROM payments`,
       (r) => (r.direction === "OUT" && r.party_type === "CUSTOMER" ? "REFUND" : "PAYMENT"), "receipt_number", (r) => r.status === "REVERSED");
@@ -305,6 +306,8 @@ export async function reconcile(backup: Backup, databaseUrl: string): Promise<Re
         const src = sourceRef.get(r.source_id as string);
         // Reversed payments/adjustments: legacy hides both the original and its reversal.
         if (src?.reversed && (st.endsWith("_REVERSAL") || st === "PAYMENT" || st === "ADJUSTMENT")) continue;
+        // A CANCELLED invoice (S7): the legacy ledger skips it, so both its INVOICE entry and its INVOICE_CANCEL entry are left out.
+        if (src?.reversed && (st === "INVOICE" || st === "INVOICE_CANCEL")) continue;
         const delta = credited ? num(r.c) - num(r.d) : num(r.d) - num(r.c);
         const kind = isOpening ? "OPENING" : st.startsWith("MILLING_") ? "MILLING" : (src?.kind ?? st);
         const row = { iso: r.date as string, kind, ref: isOpening ? "OPENING" : (src?.ref ?? ""), delta, createdAt: new Date(r.created_at as string | Date).getTime(), isOpening, id: r.entry_id as string };

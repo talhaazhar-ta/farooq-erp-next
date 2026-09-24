@@ -107,6 +107,8 @@ uniquely-named shops/suppliers and never truncate, except `payments-ledger-bridg
 Payment / search / statement / receipt endpoints, the Zod schemas the UI imports, and the permission model are listed in `docs/STATUS.md`.
 The S4 parity / proof tests (`payments-search-parity`, `statements-proof`, `receipt`, `s4-reads`) **import a backup**, which wipes the business tables — every other test seeds its own uniquely named rows. The real-backup datasets in those tests run only when `data/business-20260922-210002-v505-6a81.json` exists (never in CI).
 
+**Invoice service tests (S7)** live in `apps/api/test/invoices-*.test.ts` (validate, post, edit, cancel, change-shop, reads/duplicate, cost, permissions, concurrency, and `invoices-ledger-bridge`, which imports the fixture, runs 11 scripted operations through the HTTP API, mirrors them on the legacy JSON and runs the real reconciliation). They seed uniquely named shops / products / godowns (`test/helpers/invoices.ts`) and never truncate, except the bridge, which runs the importer. The API is `apps/api/src/invoices/`; `PaymentsService.receive` and an invoice saved with money taken both call `writeReceipt` (`apps/api/src/payments/receipt-core.ts`). Migration `0006` adds `request_keys` (idempotency for invoice saves).
+
 **Importer tests (S6)** also cover invoice lines and stock: `invoice-lines-stock` (hand-computed numbers), `invoice-stock-fail-loudly`, `invoice-stock-safety-net` (every reconciliation check proven to bite) and `real-backups`, which imports + reconciles the **two newest** `data/business-*.json` nightlies (skipped when there are none; never in CI; prints counts only). Reconciliation now also proves **invoice totals** (recomputed from the lines with `@farooq/shared`'s `invoiceTotals`), **stock** (legacy inventory = `stock_levels` = Σ `stock_movements`) and **invoice ↔ stock**, and exits non-zero on any mismatch. `stock_movements` is append-only for the app role. Migration `0005` is hand-appended (REVOKE + comments) after the generated part.
 Migration `0004` contains generated SQL (`fold_search`): regenerate with `node packages/shared/scripts/generate-fold-sql.mjs` (after `pnpm build`) into a **new** migration if `fold-search-parity` ever goes red after a Node upgrade.
 
@@ -152,7 +154,7 @@ and signs each role in once (storage states). Specs run one at a time, in file o
 ## Roadmap
 
 See `docs/ROADMAP.md` for the full milestone list. **M1 — Foundation + Payments is complete** (S1–S5).
-Current milestone: **M2 — Invoices** (**S6 invoice lines + stock quantities ✓** → S7 Invoices service + API → S8 search/print/profit server side →
+Current milestone: **M2 — Invoices** (**S6 invoice lines + stock quantities ✓** → **S7 Invoices service + API ✓** → S8 search/print/profit server side →
 S9 screens + e2e). The owner's three M2 decisions (cancel with receipts refused; permissions; net edit of posted invoices) are in `docs/ROADMAP.md` → M2.
 
 ## Where to look for more detail

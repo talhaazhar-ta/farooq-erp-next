@@ -71,7 +71,7 @@ export interface ImportResult {
 export const WIPED_TABLES = [
   "journal_lines", "journal_entries", "payment_allocations", "returns", "payments", "account_adjustments",
   "milling_jobs", "stock_movements", "stock_levels", "invoice_items", "invoices", "purchases", "customers", "suppliers", "products", "warehouses", "regions", "sequences",
-  "company_profile",
+  "company_profile", "request_keys", // request_keys (S7) points at invoice ids that this import replaces
 ] as const;
 
 async function insertChunked<T>(rows: T[], size: number, insert: (chunk: T[]) => PromiseLike<unknown>): Promise<void> {
