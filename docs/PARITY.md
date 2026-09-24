@@ -17,11 +17,11 @@ for non-money modules, a person walked through it in headless Chrome and it matc
 | 00-bridge.js | Base app / module loader bridge | not started | apps/web bootstrap |
 | 01-db.js | IndexedDB schema + migrations | ported (schema S1; sequences + backup load S2) | Drizzle schema (packages/db) + packages/import |
 | 01b-server-db.js | Server-side data backend, stale-window poll | not started | apps/api |
-| 02-services.js | Core business services (incl. Payments, Ledger) | **Ledger ported (S2)**; **Payments ported (S3)** — not yet *verified* (needs the S4 walkthrough + a reconciliation after real use); Returns operations not started | Ledger: `packages/import` (`LegacyLedger`) + `packages/db/src/ledger.ts` (shared posting builder); Payments: `apps/api/src/payments/` |
+| 02-services.js | Core business services (incl. Payments, Ledger) | **Ledger ported (S2)**; **Payments ported (S3)**, screens walked in headless Chrome (S5) — not *verified* (no person has used them, no reconciliation after real use); Returns operations not started | Ledger: `packages/import` (`LegacyLedger`) + `packages/db/src/ledger.ts` (shared posting builder); Payments: `apps/api/src/payments/` |
 | 03-docx.js | Document/Word export | not started | — |
-| 04-documents.js | Documents module | **payment receipt / voucher model ported (S4)** — `GET /payments/:id/receipt`; invoice / purchase / statement print models not started | `apps/api/src/statements/` (`loadReceipt`); print layout S5 |
+| 04-documents.js | Documents module | **payment receipt / voucher ported (S4 model, S5 print layout)** — `GET /payments/:id/receipt` → A4 print page, one page for every voucher in the e2e dataset; invoice / purchase print not started | `apps/api/src/statements/` (`loadReceipt`); `apps/web/src/routes/receipt.tsx` |
 | 05-ui-builder.js | UI builder helpers | not started | apps/web |
-| 06-wiring.js | Page wiring (partly superseded by 38) | not started | apps/web routing |
+| 06-wiring.js | Page wiring (partly superseded by 38) | **Payments panels ported (S5)** — Receive payment, Pay supplier, Pay a shop, Reverse, Edit amount; the rest of the wiring not started | `apps/web/src/components/payment-panels.tsx`, `correction-dialogs.tsx`; routing `apps/web/src/router.tsx` |
 | 07-transactions.js | Transaction posting | not started | apps/api (ledger, S1/S3) |
 | 08-classic-invoice.js | Classic invoice screen | not started | M2 |
 | 09-paperwork.js | Paperwork/printing | not started | — |
@@ -31,7 +31,7 @@ for non-money modules, a person walked through it in headless Chrome and it matc
 | 13-reports.js | Reports engine | not started | — |
 | 14-reports-ui.js | Reports UI | not started | — |
 | 15-export-flow.js | Export flow | not started | — |
-| 16-khata.js | Khata (ledger book) view | ledger feed ported (S2); **statement API ported (S4)** — OPENING-first order, adjustments; screen not started | `packages/import`; `apps/api/src/statements/ledger.ts`; screen S5 |
+| 16-khata.js | Khata (ledger book) view | ledger feed ported (S2); **statement API ported (S4)** — OPENING-first order, adjustments; **screen ported (S5)** | `packages/import`; `apps/api/src/statements/ledger.ts`; `apps/web/src/routes/statements.tsx` |
 | 17-profit.js | Profit/Profit.totals | not started | — |
 | 18-master-data.js | Areas/regions/master data (soft-delete pattern) | regions read-only list + customer lookup by region (S4); CRUD not started | `GET /regions`, `GET /customers?regionId` |
 | 19-collection-rbac.js | Roles & permissions | not started | packages/shared (S1) |
@@ -44,7 +44,7 @@ for non-money modules, a person walked through it in headless Chrome and it matc
 | 26-landed-cost.js | Landed cost | not started | M6 |
 | 27-landed-ui.js | Landed cost UI | not started | M6 |
 | 28-areawise.js | Area-wise reporting | not started | — |
-| 29-statement-of-account.js | Shop/supplier statement | **statement API ported (S4)** — `GET /customers|suppliers/:id/statement` (proved against `LegacyLedger` for every party); screen + print S5 | `apps/api/src/statements/`; apps/web (S5) |
+| 29-statement-of-account.js | Shop/supplier statement | **statement API ported (S4)** — `GET /customers|suppliers/:id/statement` (proved against `LegacyLedger` for every party, real backup 409 + 35); **screen + print ported (S5)**, on-screen rows / totals / closing proved equal to the API in Chrome | `apps/api/src/statements/`; `apps/web/src/routes/statements.tsx` |
 | 30-payroll.js | Payroll | not started | M7 |
 | 31-auth.js | Sign-in, sessions, heartbeat, lockout | not started | apps/api auth (S1) |
 | 32-milling.js | Milling / stock at mills | ledger feed ported (job issue/received/fee rows) and shown on the supplier statement (S4); rest not started | `packages/import`; rest M8 |
@@ -53,7 +53,7 @@ for non-money modules, a person walked through it in headless Chrome and it matc
 | 35-topbar.js | Top bar (user/db chips, sign-out) | not started | apps/web shell (S1) |
 | 36-ui-kit.js | UI kit (Promise-based confirm/prompt/alert) | not started | apps/web (shadcn/ui) |
 | 37-stock-value.js | Stock value report | not started | M4 |
-| 38-payment-search.js | Payment search, replaces 06's PAGES.payments | **search + CSV ported on the server (S4)** — same ids in the same order as the legacy algorithm on the fixture, a ~300-payment synthetic backup and the real backup; screen not started | `apps/api/src/payments/payments.search.ts`, `payments.csv.ts`; screen S5 |
+| 38-payment-search.js | Payment search, replaces 06's PAGES.payments | **search + CSV ported on the server (S4)** — same ids in the same order as the legacy algorithm on the fixture, a ~300-payment synthetic backup and the real backup; **screen ported (S5)** — search box, scopes, tabs with facet counts, filters, "read as" line, paging, CSV button | `apps/api/src/payments/payments.search.ts`, `payments.csv.ts`; `apps/web/src/routes/payments.tsx` |
 | 39-warehouse-server.js | Warehouse PWA server sync | not started | M9 |
 | 40-nav.js | Nav / icon set (window.I, window.P) | not started | apps/web shell |
 | 41-notifications.js | Notifications / bell panel | not started | — |
@@ -101,7 +101,32 @@ payments and no returns / reversals / adjustments / milling). Every "Proof" row 
 money entry refuses >2 decimals (legacy rounded); Greek final sigma is not context-sensitive in the fold (irrelevant to Urdu/English).
 
 **Known gaps (not ported, on purpose):** the display-time statement decoration of `24-client-changes.js` (typed description, "Cash received against
-outstanding balance", invoice-line summaries / Qty column — needs invoice items, M2); the printed layout of statements and receipts (S5).
+outstanding balance", invoice-line summaries / Qty column — needs invoice items, M2); the printed layout of statements and receipts is ported (S5).
+
+## Payments screens — ported in S5
+
+`apps/web` (React 19 + TanStack) on the S3 / S4 API. Status **ported**, not *verified*: walked in headless Chrome on synthetic data only, no person has used it.
+Unit tests are `apps/web/src/**/*.test.ts(x)`; browser tests are `apps/e2e/tests/*.spec.ts`.
+
+| Rule | Proof |
+|---|---|
+| Money screens never pre-select a party ("— Choose a shop —"); Save is refused without a party **and** a valid amount; typing in the party box un-chooses it | `panels.test`; `receive.spec` › nothing is pre-selected |
+| Amount entry is strict (`parseRupees`: > 2 decimals refused, Urdu digits and commas accepted); rupees become paisa only at the edge | `panels.test`; `payment-filters.test`; `receive.spec`; `correct.spec` |
+| Oldest-first allocation preview equals the server's rule (never over-allocates, conserves the money, stops when it runs out); manual boxes are capped per invoice and in total; manual with nothing entered is refused (an empty list would silently mean automatic) | `allocation.test` (2,000 + 1,000 seeded cases); `receive.spec` › automatic / manual allocation |
+| Double-click Save posts one voucher (in-flight guard + idempotency key) | `panels.test`; `receive.spec` › double-clicking |
+| A refusal is shown verbatim, every `errors[]` line; the form stays open | `api.test`; `receive.spec` › the server has the last word |
+| A shop refund says the balance it leaves and never blocks on it | `panels.test`; `receive.spec` › Pay a shop |
+| Reverse states its effect first and requires a reason; a second reverse is impossible; edit-amount refusals are shown disabled with the server's reason | `correct.spec` |
+| Dates: default is the Karachi business date whatever the browser's zone; presets computed from it (week = Monday..today, last month, 30 / 90 / 365 days) | `periods.test`; `receive.spec` › Karachi business date |
+| Screen state lives in the address (filters, page, sort, panel, statement party / dates); a hand-edited address never breaks the screen | `payment-filters.test`; `payments-list.spec` › paging |
+| Role behaviour: OWNER / MANAGER / ACCOUNTANT everything; SALES receives but no pay-out / reverse / edit; INVENTORY has no Payments / Statements and gets the "Not available for the Warehouse role" panel | `access.test`; `auth-nav.spec`; `correct.spec` › SALES |
+| Receipt prints on one A4 page with paper colours in any theme, no app chrome; reversed voucher stamped, no balances; statement header repeats per page | `receipt-print.spec` (the PDF read back with pdf.js) |
+| Statement balances in words, never a bare negative ("Cr" / "Dr") | `api.test`; `statements.spec` |
+| No page-level horizontal scroll and no console errors on every screen at 1280 px, 390 px and in the dark theme | `visual.spec` |
+
+**Different from the legacy (deliberate):** every tab also asks the server for `status`, so a tab's number and its rows are the same set (the legacy kept reversed rows out of the three lists too);
+"Leave on account" is not offered as a separate mode (the API treats an empty allocation list as automatic); the panel has no "Description / تفصیل" box (the API has no such field);
+Reverse / Edit amount live on the voucher page, not on list rows (only the detail knows what the server will allow); edit-amount is offered only for money paid out (legacy rule), so a received voucher shows it disabled with the server's reason.
 
 ## Payments rules ported in S3
 
@@ -145,7 +170,7 @@ see `projectFarooqAndCoTraders/CLAUDE.md`), tracked here as they're picked up in
 
 - Stock cost: `avgCostP` only moves on `PURCHASE_IN`/`MILL_RECEIPT_IN`; `costOf` falls back to carried cost,
   preferring a warehouse's own carried cost over another warehouse's average — not started (M4).
-- Money screens never pre-select a party; Save refuses without one — not started (S5, UI).
+- Money screens never pre-select a party; Save refuses without one — **ported (S5)**: `panels.test` (unit) and `receive.spec` (Chrome).
 - Edit-amount voucher correction: refused for reversed / allocated / customer-return-REFUND-tied vouchers —
   **ported (S3)**, see "Payments rules ported in S3" below.
 - Purchase edit: money only ever added, line ids stable, stock guard on net change; no cancel/delete — not

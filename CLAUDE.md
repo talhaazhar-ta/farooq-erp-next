@@ -19,7 +19,7 @@ A rebuild of the ERP at `erp.farooqandcotraders.online` (currently 46 vanilla-JS
 1.9 MB HTML file, IndexedDB/JSON-document storage, browser-only permission checks) on:
 
 - **API:** NestJS 11 + Fastify adapter, Drizzle ORM, Zod validation, PostgreSQL.
-- **Web:** React 19 + Vite, TanStack Router/Query/Table, shadcn/ui + Tailwind.
+- **Web:** React 19 + Vite, TanStack Router/Query, Tailwind v4 with hand-rolled primitives (no shadcn CLI was needed — see STATUS S5 deviations).
 - **Shared:** Zod schemas, types, permission names used by both api and web.
 - **Import:** legacy backup JSON → Postgres importer + reconciliation report (the "100%" safety net — see below).
 
@@ -31,7 +31,8 @@ record until a module is explicitly cut over (see "Two projects side by side" be
 ```
 farooq-erp-next/
   apps/api        NestJS 11, Fastify adapter, Drizzle ORM, Zod
-  apps/web        React 19 + Vite, TanStack Router/Query/Table, shadcn/ui + Tailwind
+  apps/web        React 19 + Vite, TanStack Router/Query, hand-rolled Tailwind v4 primitives (native <dialog>, ARIA combobox); Vitest + Testing Library
+  apps/e2e        Playwright browser tests (S5): built api + built web against a throwaway Postgres loaded with synthetic data
   packages/shared Zod schemas + types + permission names shared by api & web
   packages/db     Drizzle schema, migrations, client, dev-DB launcher and the embedded-postgres test harness
                   (`@farooq/db`, `@farooq/db/testing`) — shared by apps/api and packages/import
@@ -88,10 +89,11 @@ pnpm install
 pnpm build        # topological: packages/shared + packages/db first, then apps/api + apps/web + packages/import
 pnpm typecheck
 pnpm lint
-pnpm test          # apps/api and packages/import each spin up a throwaway embedded-postgres per run (@farooq/db/testing)
+pnpm test          # apps/api and packages/import each spin up a throwaway embedded-postgres per run (@farooq/db/testing); apps/web runs Vitest (jsdom)
+pnpm e2e           # S5: Playwright in Chromium — needs `pnpm build` first and Chromium installed once (below)
 ```
 
-All four must be clean before pushing. Run `pnpm build` before `pnpm test` — the packages import each other's
+All five must be clean before pushing. Run `pnpm build` before `pnpm test` — the packages import each other's
 built `dist/`. The tests use `embedded-postgres` (no system Postgres or Docker required); CI instead points them at
 a real Postgres service container via `EXTERNAL_TEST_DATABASE_URL` (see `.github/workflows/ci.yml`) — both paths run
 the same migrations and the same tests. `pnpm test` runs the workspace **one package at a time**
@@ -134,16 +136,21 @@ admin connection (TRUNCATE needs it). An unknown store or field in the backup ab
 in `packages/import/src/classification.ts`. `pnpm --filter @farooq/import fixture` regenerates the committed synthetic
 fixture (a test checks it hasn't drifted).
 
-**Browser smoke-check pattern** (no Claude-in-Chrome extension available in this environment; established in
-S1 for future sessions to reuse): `npx playwright install chromium` once, then drive the dev server with a
-short Playwright script (`chromium.launch()` → `page.goto()` → fill `#username`/`#password` → submit → assert
-on shell content) run from a temp/scratch location, never committed. See S1's STATUS.md entry for the exact
-script used.
+**Browser tests (`pnpm e2e`, S5).** One-time: `pnpm --filter @farooq/e2e exec playwright install chromium` (or set `CHROME_CHANNEL=chrome` to use an installed
+Google Chrome). Global setup (`apps/e2e/setup/global-setup.ts`) starts a throwaway Postgres (embedded on :55433, or CI's service container), imports the e2e dataset
+(S4's seeded ~300-payment synthetic backup + a few hand-made shops, `setup/dataset.ts`) through the real importer and reconciles it, creates one user per role with
+**generated** passwords (only in the gitignored `apps/e2e/.run/state.json`), starts the built API (:3100) and a fresh build of the web app served by `vite preview` (:4173),
+and signs each role in once (storage states). Specs run one at a time, in file order, on that one database — each test that moves money uses its own shop from the dataset.
+- one spec: `pnpm --filter @farooq/e2e exec playwright test tests/receive.spec.ts` (one test: add `-g "part of its name"`; `--headed` to watch; `--ui` for the inspector).
+- `pnpm --filter @farooq/e2e run serve` starts that same stack and leaves it running for a person or a scratch script to look at (Ctrl+C stops it; if a run is killed, an orphaned
+  postgres on :55433 and a node on :3100 / :4173 must be stopped by hand before the next run).
+- Screenshots (desktop / phone / dark) and the PDFs the print tests read back are written to `apps/e2e/e2e-artifacts/` (gitignored) by `tests/visual.spec.ts` / `receipt-print.spec.ts` — open them and look.
+- Any `console.error` fails a golden-path test (a test that provokes a refusal sets `allowConsoleErrors`). Sign-in specs spend real login attempts (the API throttles 20 / 15 min / IP), everything else reuses the storage states.
 
 ## Roadmap
 
 See `docs/ROADMAP.md` for the full milestone list. Current milestone: **M1 — Foundation + Payments**
-(S1 scaffold+DB+auth ✓ → S2 importer+reconciliation ✓ → S3 Payments service+API ✓ → S4 search/statement/receipt server side ✓ → S5 Payments UI + e2e).
+(S1 scaffold+DB+auth ✓ → S2 importer+reconciliation ✓ → S3 Payments service+API ✓ → S4 search/statement/receipt server side ✓ → S5 Payments UI + e2e ✓). **M1 is complete**; the next milestone (M2 — Invoices) has no session plan yet — write it first, from `docs/STATUS.md` and `docs/PARITY.md`.
 
 ## Where to look for more detail
 

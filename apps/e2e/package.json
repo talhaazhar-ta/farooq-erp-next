@@ -1,0 +1,27 @@
+{
+  "name": "@farooq/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Playwright end-to-end tests: built api + built web against a throwaway Postgres loaded with synthetic data.",
+  "scripts": {
+    "e2e": "playwright test",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "serve": "tsx setup/serve.ts"
+  },
+  "devDependencies": {
+    "@farooq/db": "workspace:*",
+    "@farooq/import": "workspace:*",
+    "@farooq/shared": "workspace:*",
+    "@playwright/test": "^1.49.0",
+    "@types/node": "^22.10.6",
+    "argon2": "^0.41.1",
+    "drizzle-orm": "^0.38.4",
+    "eslint": "^9.18.0",
+    "pdfjs-dist": "^4.10.38",
+    "postgres": "^3.4.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

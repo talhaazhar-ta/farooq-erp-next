@@ -14,7 +14,8 @@
     "typecheck": "pnpm -r run typecheck",
     "lint": "pnpm -r run lint",
     "db:migrate": "pnpm --filter @farooq/api run db:migrate",
-    "db:seed": "pnpm --filter @farooq/api run db:seed"
+    "db:seed": "pnpm --filter @farooq/api run db:seed",
+    "e2e": "pnpm --filter @farooq/e2e run e2e"
   },
   "devDependencies": {
     "typescript": "^5.7.3",

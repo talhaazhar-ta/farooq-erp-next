@@ -1,7 +1,7 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Role } from "@farooq/shared";
-import { api, ApiError, setCsrfToken } from "./api";
+import { api, ApiError, setCsrfToken, setUnauthorizedHandler } from "./api";
 
 export interface SessionUser {
   id: string;
@@ -23,6 +23,15 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [loginError, setLoginError] = useState<string | null>(null);
+
+  // A 401 from any business call means the session ended (12 h cap, or signed out elsewhere): back to sign-in.
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setCsrfToken(null);
+      queryClient.setQueryData(["auth", "me"], null);
+    });
+    return () => setUnauthorizedHandler(null);
+  }, [queryClient]);
 
   const meQuery = useQuery<SessionUser | null>({
     queryKey: ["auth", "me"],

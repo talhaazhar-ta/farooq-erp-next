@@ -52,3 +52,19 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      - name: Install Chromium for the browser tests
+        run: pnpm --filter @farooq/e2e exec playwright install --with-deps chromium
+
+      - name: End-to-end tests (Playwright)
+        run: pnpm e2e
+
+      - name: Keep the screenshots and PDFs the browser tests wrote
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: |
+            apps/e2e/e2e-artifacts
+            apps/e2e/test-results
+          if-no-files-found: ignore

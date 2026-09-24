@@ -5,7 +5,7 @@ while both projects run side by side — see `CLAUDE.md` → "Two projects side 
 until its data reconciles to the paisa against a real nightly backup (`CLAUDE.md` rule 8) and its screens have
 been walked through in headless Chrome.
 
-## M1 — Foundation + Payments (current)
+## M1 — Foundation + Payments (complete — S5 done 2026-09-24)
 
 The system is **not used by staff in M1**. Goal: prove the stack, the importer/reconciliation loop, and the
 Payments module (money in/out, the most rule-heavy legacy area) end to end.
