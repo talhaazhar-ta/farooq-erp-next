@@ -409,6 +409,9 @@ importers:
       '@farooq/db':
         specifier: workspace:*
         version: link:../db
+      '@farooq/shared':
+        specifier: workspace:*
+        version: link:../shared
       dotenv:
         specifier: ^16.4.7
         version: 16.6.1

@@ -7,6 +7,7 @@ import {
   index,
   integer,
   jsonb,
+  doublePrecision,
   pgTable,
   primaryKey,
   text,
@@ -62,6 +63,27 @@ export const products = pgTable("products", {
   active: boolean("active").notNull().default(true),
   createdAt: createdAt(),
   legacyDoc: legacyDoc(),
+  /* Catalogue fields the invoice builder needs (S6). `name` stays the display name the M1 screens use. */
+  nameUr: text("name_ur"),
+  nameEn: text("name_en"),
+  brand: text("brand"),
+  brandEn: text("brand_en"),
+  weightKg: doublePrecision("weight_kg"),
+  sku: text("sku"),
+  barcode: text("barcode"),
+  /* The Prices panel (legacy `Prices.of`, 21-settings.js). Paisa, all nullable: null = never set. Mapped from the
+     `…P` field when present, else from the legacy rupee field (`buy`, `sell`, `min`, `extra`). The legacy also falls
+     back to an average cost derived from purchases for `buy` — that is derived data (M4), not stored here. */
+  buyP: bigint("buy_p", { mode: "number" }),
+  sellP: bigint("sell_p", { mode: "number" }),
+  extraP: bigint("extra_p", { mode: "number" }),
+  minSellP: bigint("min_sell_p", { mode: "number" }),
+  wholesaleP: bigint("wholesale_p", { mode: "number" }),
+  retailP: bigint("retail_p", { mode: "number" }),
+  discountPct: doublePrecision("discount_pct"),
+  taxPct: doublePrecision("tax_pct"),
+  /** Stock alert level in units (bags). */
+  reorder: doublePrecision("reorder"),
 });
 
 export const suppliers = pgTable("suppliers", {
@@ -240,17 +262,18 @@ export const sequences = pgTable(
   (t) => [primaryKey({ columns: [t.kind, t.year] })],
 );
 
-/* ── header-only transaction tables (line items are M2/M3 scope) ────────── */
+/* ── transaction tables: invoices carry lines since S6; purchases stay header-only until M3 ────────── */
 
 export const invoices = pgTable(
   "invoices",
   {
     id: id(),
     legacyId: legacyId(),
-    /** Drafts carry no number in the legacy app (stored as null). */
+    /** Drafts carry no number (NULL): the partial unique index below lets any number of drafts exist. */
     invoiceNumber: text("invoice_number"),
     customerId: uuid("customer_id").references(() => customers.id),
     date: date("date").notNull(),
+    /** The grand total (legacy `grandTotal`) — what posts to RECEIVABLES / SALES. */
     totalP: moneyP("total_p"),
     /** The legacy status string, verbatim (DRAFT, CONFIRMED, PARTIALLY_PAID, PAID, CANCELLED, ...). */
     status: text("status").notNull().default("DRAFT"),
@@ -258,10 +281,189 @@ export const invoices = pgTable(
     legacyDoc: legacyDoc(),
     /** Folded number and its compact form, so a payment can be found by the invoice it was applied to. Generated. */
     searchNumber: text("search_number").generatedAlwaysAs(sql`search_join(invoice_number, search_compact(invoice_number))`),
+
+    /* ── S6: the rest of the header, mapped out of legacy_doc (S7 writes them). paidAmount / balanceAmount /
+       paymentStatus are NOT stored: they are derived from the payment allocations (S2 decision). ── */
+    invoiceType: text("invoice_type").notNull().default("SALE"),
+    dueDate: date("due_date"),
+    warehouseId: uuid("warehouse_id").references(() => warehouses.id),
+    salesperson: text("salesperson"),
+    subtotalP: moneyP("subtotal_p"),
+    itemDiscountsP: moneyP("item_discounts_p"),
+    invoiceDiscountP: moneyP("invoice_discount_p"),
+    /** Σ line tax (legacy `taxAmount`). */
+    taxP: moneyP("tax_p"),
+    freightP: moneyP("freight_p"),
+    loadingP: moneyP("loading_p"),
+    otherChargesP: moneyP("other_charges_p"),
+    paymentMethod: text("payment_method"),
+    referenceNo: text("reference_no"),
+    notes: text("notes"),
+    description: text("description"),
+    /** Signed paisa: the shop's balance before this sale, as printed (legacy `previousBalance`). */
+    previousBalanceP: bigint("previous_balance_p", { mode: "number" }).notNull().default(0),
+    /** Σ line quantities in thousandths of a bag. */
+    totalQtyMilli: bigint("total_qty_milli", { mode: "number" }).notNull().default(0),
+    lineCount: integer("line_count").notNull().default(0),
+    /** True while this invoice's stock is out of the godown (SALE_OUT booked, not yet reversed). */
+    stockApplied: boolean("stock_applied").notNull().default(false),
+    /** Legacy `migrated: true`: created by the old app's data migration with `stockApplied` but NO SALE_OUT movements.
+     *  S7 must never "reverse" the stock of such an invoice — it was never taken by a movement. */
+    migrated: boolean("migrated").notNull().default(false),
+    revision: integer("revision").notNull().default(0),
+    /** The user who saved it (S7). Null on imported rows: the legacy app stored a display name, kept in legacy_doc. */
+    createdBy: uuid("created_by").references(() => users.id),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    cancelReason: text("cancel_reason"),
+    /** The sale order it came from — the legacy id only in M2 (sale orders are M9). */
+    saleOrderId: text("sale_order_id"),
+    orderNumber: text("order_number"),
+    dispatchNumber: text("dispatch_number"),
+    /* What the invoice printed about the shop when it was made (legacy `customerFields`): a later rename of the shop
+       does not change an old invoice. */
+    customerCodeSnapshot: text("customer_code_snapshot"),
+    customerNameSnapshot: text("customer_name_snapshot"),
+    shopNameSnapshot: text("shop_name_snapshot"),
+    contactPersonSnapshot: text("contact_person_snapshot"),
+    mobileSnapshot: text("mobile_snapshot"),
+    whatsappSnapshot: text("whatsapp_snapshot"),
+    addressSnapshot: text("address_snapshot"),
+    regionId: uuid("region_id").references(() => regions.id),
+    regionSnapshot: text("region_snapshot"),
+    marketSnapshot: text("market_snapshot"),
+    warehouseSnapshot: text("warehouse_snapshot"),
   },
   (t) => [
     index("invoices_invoice_number_idx").on(t.invoiceNumber),
     index("invoices_customer_idx").on(t.customerId),
+    index("invoices_warehouse_idx").on(t.warehouseId),
+    // One number, one invoice — but drafts have no number, so any number of them may exist (legacy bug: one draft only).
+    uniqueIndex("invoices_invoice_number_uq")
+      .on(t.invoiceNumber)
+      .where(sql`${t.invoiceNumber} IS NOT NULL`),
+    check(
+      "invoices_amounts_chk",
+      sql`${t.subtotalP} >= 0 AND ${t.itemDiscountsP} >= 0 AND ${t.invoiceDiscountP} >= 0 AND ${t.taxP} >= 0 AND ${t.freightP} >= 0 AND ${t.loadingP} >= 0 AND ${t.otherChargesP} >= 0 AND ${t.totalQtyMilli} >= 0 AND ${t.lineCount} >= 0`,
+    ),
+  ],
+);
+
+/** One line of an invoice, as it was on the day (the snapshot columns keep an old invoice true after a rename or a price change). */
+export const invoiceItems = pgTable(
+  "invoice_items",
+  {
+    id: id(),
+    legacyId: legacyId(),
+    invoiceId: uuid("invoice_id")
+      .notNull()
+      .references(() => invoices.id),
+    sortOrder: integer("sort_order").notNull().default(0),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id),
+    warehouseId: uuid("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id),
+    descriptionSnapshot: text("description_snapshot"),
+    descriptionEnSnapshot: text("description_en_snapshot"),
+    brandSnapshot: text("brand_snapshot"),
+    categorySnapshot: text("category_snapshot"),
+    packageSnapshot: text("package_snapshot"),
+    skuSnapshot: text("sku_snapshot"),
+    unit: text("unit").notNull().default("Bag"),
+    /** Quantity in thousandths of a unit (2.5 bags = 2500); always > 0. */
+    qtyMilli: bigint("qty_milli", { mode: "number" }).notNull(),
+    unitPriceP: bigint("unit_price_p", { mode: "number" }).notNull(),
+    discountP: moneyP("discount_p"),
+    taxP: moneyP("tax_p"),
+    /** gross − discount + tax, stored as the legacy stored it; reconciliation recomputes it. */
+    lineTotalP: bigint("line_total_p", { mode: "number" }).notNull(),
+    /** What one unit cost us when this was sold (legacy `Inventory.costOf`); null when the legacy had none. Feeds profit (S8). */
+    costSnapshotP: bigint("cost_snapshot_p", { mode: "number" }),
+    /** Filled by returns (M5). */
+    returnedQtyMilli: bigint("returned_qty_milli", { mode: "number" }).notNull().default(0),
+    batchNo: text("batch_no"),
+    notes: text("notes"),
+    legacyDoc: legacyDoc(),
+  },
+  (t) => [
+    index("invoice_items_invoice_idx").on(t.invoiceId, t.sortOrder),
+    index("invoice_items_product_idx").on(t.productId),
+    check("invoice_items_qty_chk", sql`${t.qtyMilli} > 0 AND ${t.returnedQtyMilli} >= 0 AND ${t.returnedQtyMilli} <= ${t.qtyMilli}`),
+    check("invoice_items_money_chk", sql`${t.unitPriceP} >= 0 AND ${t.discountP} >= 0 AND ${t.taxP} >= 0 AND ${t.lineTotalP} >= 0`),
+    // discount <= gross, where gross = round-half-up(unit price x qty / 1000). In exact integer arithmetic:
+    // discount <= floor(x + 0.5)  <=>  1000 * discount <= unit price * qty_milli + 500.
+    check("invoice_items_discount_chk", sql`1000 * ${t.discountP} <= ${t.unitPriceP} * ${t.qtyMilli} + 500`),
+  ],
+);
+
+/* ── stock (S6): movements are the record, levels the current figure ──────
+   Pulled forward from M4 because an invoice cannot be correct without them. Quantities are thousandths of a bag
+   (`*_milli`). `stock_movements` is append-only (REVOKE in migration 0005, like audit_log); `stock_levels` is kept in
+   the SAME transaction as every movement by the services (S7), and reconciliation proves level = sum of movements. */
+export const stockMovements = pgTable(
+  "stock_movements",
+  {
+    id: id(),
+    legacyId: legacyId(),
+    /** Business date (never built from toISOString). */
+    date: date("date").notNull(),
+    createdAt: createdAt(),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id),
+    warehouseId: uuid("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id),
+    /** The legacy movement kind, verbatim (SALE_OUT, SALE_REVERSAL_IN, PURCHASE_IN, ADJUSTMENT_IN, ...). */
+    kind: text("kind").notNull(),
+    /** `stock` = sellable; `damaged` = the damaged bucket (returns, write-offs). */
+    bucket: text("bucket").notNull().default("stock"),
+    qtyDeltaMilli: bigint("qty_delta_milli", { mode: "number" }).notNull(),
+    /** Cost per unit when known (legacy `unitCostP`; 0 = unknown -> null). */
+    unitCostP: bigint("unit_cost_p", { mode: "number" }),
+    /** The legacy free-text reference (an invoice / purchase / stock-document number) and its type. */
+    ref: text("ref"),
+    refType: text("ref_type"),
+    /** The document that caused it: `INVOICE` / `PURCHASE` + its id when the reference resolves; other types carry no id yet. */
+    sourceType: text("source_type"),
+    sourceId: uuid("source_id"),
+    note: text("note"),
+    /** Null on imported rows: the legacy stored a display name (kept in legacy_doc). */
+    createdBy: uuid("created_by").references(() => users.id),
+    legacyDoc: legacyDoc(),
+  },
+  (t) => [
+    index("stock_movements_level_idx").on(t.productId, t.warehouseId, t.bucket),
+    index("stock_movements_source_idx").on(t.sourceType, t.sourceId),
+    check("stock_movements_bucket_chk", sql`${t.bucket} IN ('stock', 'damaged')`),
+    check("stock_movements_qty_chk", sql`${t.qtyDeltaMilli} <> 0`),
+  ],
+);
+
+export const stockLevels = pgTable(
+  "stock_levels",
+  {
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id),
+    warehouseId: uuid("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id),
+    bucket: text("bucket").notNull().default("stock"),
+    /** Current quantity in thousandths. May be negative: legacy allows negative stock; enforcement is the service's job (S7). */
+    qtyMilli: bigint("qty_milli", { mode: "number" }).notNull().default(0),
+    /** Carried VERBATIM from the legacy `inventory` row (stock bucket only) and read by `costOf` (S7); maintained by
+     *  purchases / conversions from M3-M4 - nothing in M2 recomputes them. */
+    avgCostP: bigint("avg_cost_p", { mode: "number" }).notNull().default(0),
+    lastCostP: bigint("last_cost_p", { mode: "number" }).notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.productId, t.warehouseId, t.bucket] }),
+    check("stock_levels_bucket_chk", sql`${t.bucket} IN ('stock', 'damaged')`),
   ],
 );
 

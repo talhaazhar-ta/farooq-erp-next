@@ -65,7 +65,9 @@ describe("fixture import + reconciliation (the proof that exercises every ledger
 
   it("loads every imported store (row counts)", () => {
     expect(result.loaded).toEqual({
-      regions: 2, warehouses: 1, products: 3, customers: 6, suppliers: 5, invoices: 8, purchases: 4, payments: 7,
+      // S6: a second warehouse; 11 invoice lines; stock levels = 4 stock rows + 1 damaged row; 24 stock movements
+      regions: 2, warehouses: 2, products: 3, customers: 6, suppliers: 5, invoices: 8, invoice_items: 11, stock_levels: 5,
+      stock_movements: 24, purchases: 4, payments: 7,
       payment_allocations: 4, returns: 7, account_adjustments: 3, milling_jobs: 3, company_profile: 1, sequences: 8,
     });
   });

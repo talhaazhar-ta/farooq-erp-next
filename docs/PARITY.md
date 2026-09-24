@@ -15,14 +15,14 @@ for non-money modules, a person walked through it in headless Chrome and it matc
 |---|---|---|---|
 | 00a-preboot.js | Pre-boot shims/polyfills | not started | — |
 | 00-bridge.js | Base app / module loader bridge | not started | apps/web bootstrap |
-| 01-db.js | IndexedDB schema + migrations | ported (schema S1; sequences + backup load S2) | Drizzle schema (packages/db) + packages/import |
+| 01-db.js | IndexedDB schema + migrations | ported (schema S1; sequences + backup load S2; **money in whole paisa and quantities rounded to 3 decimals — held as integer thousandths — S6**; invoice lines, stock tables and the full invoice header S6) | Drizzle schema (packages/db) + packages/import |
 | 01b-server-db.js | Server-side data backend, stale-window poll | not started | apps/api |
-| 02-services.js | Core business services (incl. Payments, Ledger) | **Ledger ported (S2)**; **Payments ported (S3)**, screens walked in headless Chrome (S5) — not *verified* (no person has used them, no reconciliation after real use); Returns operations not started | Ledger: `packages/import` (`LegacyLedger`) + `packages/db/src/ledger.ts` (shared posting builder); Payments: `apps/api/src/payments/` |
+| 02-services.js | Core business services (incl. Payments, Ledger) | **Ledger ported (S2)**; **Payments ported (S3)**, screens walked in headless Chrome (S5) — not *verified* (no person has used them, no reconciliation after real use); **`Calc` (line + invoice totals, `paymentStatus`) ported (S6) and reconciled on the real backups** (every invoice recomputes from its lines to its stored total); **`Inventory` quantity part (movements, levels, kinds) ported as data + reconciliation (S6)** — `costOf` / `carriedCost` / `avgCostP` maintenance not started; Invoices operations (save / cancel / change shop) not started (S7); Returns operations not started | Ledger: `packages/import` (`LegacyLedger`) + `packages/db/src/ledger.ts` (shared posting builder); Payments: `apps/api/src/payments/` |
 | 03-docx.js | Document/Word export | not started | — |
 | 04-documents.js | Documents module | **payment receipt / voucher ported (S4 model, S5 print layout)** — `GET /payments/:id/receipt` → A4 print page, one page for every voucher in the e2e dataset; invoice / purchase print not started | `apps/api/src/statements/` (`loadReceipt`); `apps/web/src/routes/receipt.tsx` |
 | 05-ui-builder.js | UI builder helpers (incl. the invoice builder and invoice list screen) | not started | invoice builder + list M2 (S9) |
 | 06-wiring.js | Page wiring (partly superseded by 38) | **Payments panels ported (S5)** — Receive payment, Pay supplier, Pay a shop, Reverse, Edit amount; the rest of the wiring not started | `apps/web/src/components/payment-panels.tsx`, `correction-dialogs.tsx`; routing `apps/web/src/router.tsx` |
-| 07-transactions.js | Transaction posting | not started | apps/api (ledger, S1/S3) |
+| 07-transactions.js | Transaction posting (stock documents) | movement **kinds / ref types / buckets** ported as the stock vocabulary (S6, `packages/db/src/stock.ts`) and imported with their effect on stock; the documents themselves (RECEIVE / DISPATCH / TRANSFER / ADJUST) not started (M4) | `packages/db/src/stock.ts`, `stock_movements`; documents M4 |
 | 08-classic-invoice.js | Classic invoice print template (live setting `invoiceTemplate: classic`) | not started | M2: print model S8, print screen S9 |
 | 09-paperwork.js | Paperwork/printing | not started | — |
 | 10-mobile.js | Mobile layout, sidebar collapse | not started | apps/web layout |
@@ -36,7 +36,7 @@ for non-money modules, a person walked through it in headless Chrome and it matc
 | 18-master-data.js | Areas/regions/master data (soft-delete pattern) | regions read-only list + customer lookup by region (S4); CRUD not started | `GET /regions`, `GET /customers?regionId` |
 | 19-collection-rbac.js | Roles & permissions | not started | packages/shared (S1) |
 | 20-integrity.js | Data integrity checks / migration path | not started | packages/import (S2) |
-| 21-settings.js | Settings incl. product prices panel, extra cost/bag | company profile imported verbatim + read-only display whitelist (S4, `GET /company`); editing not started | `packages/import`, `apps/api/src/statements/` |
+| 21-settings.js | Settings incl. product prices panel, extra cost/bag | company profile imported verbatim + read-only display whitelist (S4, `GET /company`); **product prices (`Prices.of` precedence) imported into `products.*_p` (S6, tested from both the `…P` and the legacy rupee source)**; the panel / editing not started | `packages/import`, `apps/api/src/statements/` |
 | 22-users.js | User/company accounts management | not started | apps/api auth (S1) |
 | 23-workbench.js | Workbench | not started | — |
 | 24-client-changes.js | Label overrides repainted every render | statement row *descriptions* (typed "Description / تفصیل", auto text, invoice-line summaries) deliberately **not** ported in S4 — see "Known gaps" below | statement descriptions / Qty column M2 (S8) |
@@ -176,7 +176,7 @@ see `projectFarooqAndCoTraders/CLAUDE.md`), tracked here as they're picked up in
 - Purchase edit: money only ever added, line ids stable, stock guard on net change; no cancel/delete — not
   started (M3).
 - Change shop moves the shop and its wholly-applied receipts only; refused with a return or a split receipt; needs TRANSACTION_CORRECT — planned S7.
-- Only one draft invoice can exist (unique invoiceNumber, drafts save '') — **legacy bug, to be fixed** in S6 (partial unique index, drafts NULL).
+- Only one draft invoice can exist (unique invoiceNumber, drafts save '') — **legacy bug, fixed by the schema in S6**: drafts carry NULL and the unique index is partial (`WHERE invoice_number IS NOT NULL`); tests `invoice-lines-stock` › "many DRAFTS can exist…" and "the importer accepts a backup with several numberless drafts…".
 
 ### M2 (Invoices) — owner decisions and legacy quirks to fix (planned 2026-09-24; each needs a test in S6/S7)
 
@@ -192,9 +192,34 @@ the posting transaction with the current year, receipt for the paid delta only, 
 Found in the live ERP too — reported to the owner 2026-09-24; not changed there.
 - Dates: local business date, never `toISOString()` — enforced as a project-wide rule, see `CLAUDE.md` rule 6.
 
+## Invoice lines, full header, stock quantities — ported in S6
+
+`Calc` (`02-services.js` ~242-285), `Invoices.buildRecord / snapshotItem / customerFields` (~409-483), the stock part of `Invoices.save` / `cancel`
+(~549-568, ~620-646), `Inventory.apply` and the movement kinds, `Prices.of` (`21-settings.js` ~66-108) and the old app's invoice migration (~2140-2215) — ported to
+`packages/shared/src/invoice-totals.ts`, migration `0005`, `packages/db/src/{ledger,stock}.ts` and `packages/import`. Status **ported and reconciled** on the two newest real
+nightlies (0 differences) — not *verified* as a service or a screen (S7-S9). Tests: `packages/shared/src/invoice-totals.test.ts`,
+`packages/import/test/{invoice-lines-stock,invoice-stock-fail-loudly,invoice-stock-safety-net,real-backups}.test.ts`.
+
+| Rule | Test(s) |
+|---|---|
+| `Calc.line` / `Calc.invoice` / `Calc.paymentStatus` exactly: gross = round(unit × qty) per line, line discount capped at the gross, invoice discount capped at (subtotal − item discounts), charges after the discounts, tax on the taxable amount, UNPAID when the total is ≤ 0 — quantities as integer thousandths | `invoice-totals.test` (legacy T1 / T2 / T4 cases by hand + 3,000 random invoices against an independent re-typing + invariants) |
+| Every non-draft invoice's total, sub-totals, discount amount, tax, quantity, line count and each line total recompute from its lines — **17 / 17 real invoices** (18 lines, 910 bags) | `invoice-lines-stock` › header + lines; `real-backups`; `invoice-stock-safety-net` › totals (11 bite tests) |
+| `stock_levels` = legacy `inventory` = Σ `stock_movements` per product × warehouse × bucket (stock / damaged) — **15 rows, 48 movements** real | `invoice-lines-stock` › stock levels; `real-backups`; safety-net › stock (6 bite tests) |
+| An invoice's SALE_OUT + edit reversals + cancel reversals net to −Σ its lines (a full reverse-and-re-deduct edit nets out; a cancelled or drafted invoice nets 0); migrated invoices are skipped, not failed | `invoice-lines-stock` › reconciliation; safety-net › invoice <-> stock (6 bite tests) |
+| Migrated invoices (`migrated: true`, stockApplied without SALE_OUT) import as-is, are flagged (`invoices.migrated`) and listed — S7 must never "reverse" their stock | `invoice-lines-stock` › the migrated invoice (none in the real data) |
+| Prices-panel precedence (`Prices.of`): `…P` wins when set, else the legacy rupee field when truthy, else never set; `minSellP` 0 falls to `min`; rupees through the strict parser | `invoice-lines-stock` › product catalogue + the Prices panel |
+| Fail loudly: unknown kind / refType / bucket, dangling item / movement ids, a 4-decimal quantity, a fractional paisa, a discount above the gross, duplicate ids / numbers / inventory pairs, new unclassified fields | `invoice-stock-fail-loudly` (each case leaves the database untouched) |
+| `stock_movements` is append-only for the app role; CHECKs refuse a zero movement, an unknown bucket, a zero-quantity line and a discount above the gross | `invoice-lines-stock` › what the database itself enforces |
+
+**Different from the legacy (deliberate):** a number identifies one invoice (the legacy allowed duplicates and one draft only); a quantity with more than 3 decimals is refused at import (the legacy rounded);
+a price never set is `null`, not 0; `weight_kg`, the percentages and `reorder` are `double precision` (not money). **No COGS / inventory journal until M4** — a sale is still DR RECEIVABLES / CR SALES only.
+**Not ported here:** the stock-document store (M4), `costOf` / `avgCostP` maintenance (M4), purchase lines (M3), return lines (M5), the statement Qty column (S8).
+
 ## Change log (old-ERP changes since this project started)
 
 Format: `YYYY-MM-DD` — commit `<hash>` in `projectFarooqAndCoTraders` — what changed — affected module(s) above.
 
 - 2026-09-23 — repo created; log starts here. Old-repo commits before this date are covered by the module
   checklist above, not logged individually.
+- 2026-09-24 — (no old-repo hash: found by the S6 importer, not logged by the old repo) the 2026-09-23 nightly has three fields the 2026-09-22 one lacked: `regions.updatedAt`,
+  `customers.salesmanId`, `customers.limit` — the importer aborted on them as designed; now classified `docOnly` (kept in `legacy_doc`, unused) — master data (18-master-data.js).

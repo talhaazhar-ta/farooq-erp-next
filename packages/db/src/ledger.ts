@@ -104,6 +104,26 @@ export function paymentMemo(p: { direction: PaymentDirection; partyType: Payment
 
 export const paymentReversalMemo = (receiptNumber: string): string => `Reversal of ${receiptNumber}`;
 
+/* ── sales invoices (S6) ────────────────────────────────────────────────────
+   One entry per posted invoice, `source_type` INVOICE, `source_id` = the invoice id. The legacy Ledger counts every
+   invoice whose status is neither DRAFT nor CANCELLED. Until M4 there is NO cost-of-goods / inventory journal: the
+   sale is DR RECEIVABLES(shop) / CR SALES for the grand total, and nothing else. */
+
+export const INVOICE_SOURCE = "INVOICE";
+
+/** DR RECEIVABLES(shop) / CR SALES, for the invoice's grand total (never negative). */
+export function invoiceLines(customerId: string, totalP: number): JournalLineDraft[] {
+  return [custLine(customerId, totalP, 0), plainLine("SALES", 0, totalP)];
+}
+
+/** Journal memo of a sale ("Sales invoice INV-2026-000001"); a numberless one is just "Sales invoice". */
+export function invoiceMemo(invoiceNumber: string | null | undefined): string {
+  return `Sales invoice ${invoiceNumber ?? ""}`.trim();
+}
+
+/** Whether an invoice with this status is in the ledger (legacy `Ledger`: everything except DRAFT and CANCELLED). */
+export const invoicePosts = (status: string): boolean => status !== "DRAFT" && status !== "CANCELLED";
+
 /** Resolves control-account codes to ids (`accounts.code` is unique). Throws if the database was not migrated. */
 export async function loadAccountIds(tx: Tx): Promise<Map<AccountCode, string>> {
   const rows = await tx.select({ id: accounts.id, code: accounts.code }).from(accounts);

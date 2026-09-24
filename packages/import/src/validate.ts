@@ -1,3 +1,4 @@
+import { parseRupees } from "@farooq/shared";
 import {
   DEFERRED_STORES,
   FIELD_CLASSES,
@@ -154,6 +155,62 @@ export function paisa(store: string, doc: Doc, key: string, opts: { signed?: boo
   if (typeof v !== "number" || !Number.isFinite(v)) fail(store, doc, key, `money must be a finite number, got ${JSON.stringify(v)}`);
   if (!Number.isSafeInteger(v)) fail(store, doc, key, `money must be an integer number of paisa, got ${v}`);
   if (!opts.signed && (v as number) < 0) fail(store, doc, key, `money must not be negative, got ${v}`);
+  return v as number;
+}
+
+/** Like `paisa`, but an absent / null value is `null` rather than 0 (a price or cost that was never set). */
+export function optPaisa(store: string, doc: Doc, key: string): number | null {
+  const v = doc[key];
+  if (v === undefined || v === null) return null;
+  return paisa(store, doc, key);
+}
+
+/**
+ * A rupee amount as the old app stored it in a product's `buy` / `sell` / `min` / `extra` (a number, or text a person
+ * typed) → integer paisa, through the same STRICT parser the screens use (`parseRupees`): more than two decimals aborts
+ * instead of being rounded, so a price is never quietly changed by the import.
+ */
+export function rupeesPaisa(store: string, doc: Doc, key: string): number {
+  const v = doc[key];
+  if (typeof v !== "number" && typeof v !== "string") fail(store, doc, key, `expected rupees as a number or text, got ${typeof v}`);
+  if (typeof v === "number" && !Number.isFinite(v)) fail(store, doc, key, `rupees must be a finite number, got ${v}`);
+  const parsed = parseRupees(String(v));
+  if (!parsed.ok) fail(store, doc, key, `rupee amount ${JSON.stringify(v)} is not exact paisa: ${parsed.message}`);
+  return (parsed as { ok: true; paisa: number }).paisa;
+}
+
+/**
+ * A quantity → integer thousandths (the legacy rounds every quantity to 3 decimals). More than 3 decimals aborts:
+ * `qtyMilli` cannot hold it, and rounding would change stock. A hair of float noise (0.1 + 0.2 in a summed header
+ * quantity) is tolerated. `sign` decides whether a negative or zero value is acceptable.
+ */
+export function qtyMilli(
+  store: string,
+  doc: Doc,
+  key: string,
+  opts: { sign?: "positive" | "nonNegative" | "any"; optional?: boolean } = {},
+): number {
+  const v = doc[key];
+  if (v === undefined || v === null) {
+    if (opts.optional) return 0;
+    fail(store, doc, key, "quantity is missing");
+  }
+  if (typeof v !== "number" || !Number.isFinite(v)) fail(store, doc, key, `quantity must be a finite number, got ${JSON.stringify(v)}`);
+  const n = v as number;
+  const milli = Math.round(n * 1000);
+  if (Math.abs(n * 1000 - milli) > 1e-6) fail(store, doc, key, `quantity ${n} has more than 3 decimals (the ledger holds thousandths)`);
+  if (!Number.isSafeInteger(milli)) fail(store, doc, key, `quantity ${n} is too large`);
+  const sign = opts.sign ?? "nonNegative";
+  if (sign === "positive" && milli <= 0) fail(store, doc, key, `quantity must be greater than zero, got ${n}`);
+  if (sign === "nonNegative" && milli < 0) fail(store, doc, key, `quantity must not be negative, got ${n}`);
+  return milli;
+}
+
+/** A plain non-negative number (a weight, a percentage, a reorder level); absent / null / '' -> null. */
+export function optNumber(store: string, doc: Doc, key: string): number | null {
+  const v = doc[key];
+  if (v === undefined || v === null || v === "") return null;
+  if (typeof v !== "number" || !Number.isFinite(v) || v < 0) fail(store, doc, key, `expected a non-negative number, got ${JSON.stringify(v)}`);
   return v as number;
 }
 

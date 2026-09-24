@@ -11,6 +11,7 @@ const {
   auditLog,
   companyProfile,
   customers,
+  invoiceItems,
   invoices,
   journalEntries,
   journalLines,
@@ -22,6 +23,8 @@ const {
   regions,
   returns,
   sequences,
+  stockLevels,
+  stockMovements,
   suppliers,
   warehouses,
 } = schema;
@@ -59,13 +62,15 @@ export interface ImportResult {
   loaded: Record<string, number>;
   journalEntries: number;
   journalLines: number;
+  /** Numbers of the invoices made by the old app's data migration (stock taken without SALE_OUT movements). */
+  migratedInvoices: string[];
   warnings: string[];
 }
 
 /** Tables the importer owns and wipes. `users`, `sessions`, `role_permissions`, `audit_log` and `accounts` are never touched. */
 export const WIPED_TABLES = [
   "journal_lines", "journal_entries", "payment_allocations", "returns", "payments", "account_adjustments",
-  "milling_jobs", "invoices", "purchases", "customers", "suppliers", "products", "warehouses", "regions", "sequences",
+  "milling_jobs", "stock_movements", "stock_levels", "invoice_items", "invoices", "purchases", "customers", "suppliers", "products", "warehouses", "regions", "sequences",
   "company_profile",
 ] as const;
 
@@ -86,11 +91,11 @@ export async function runImport(backup: unknown, opts: ImportOptions): Promise<I
   try {
     const db = drizzle(client, { schema });
 
-    // The newest table the importer writes (migration 0004): if it is missing, the database is behind the code.
+    // The newest table the importer writes (migration 0005): if it is missing, the database is behind the code.
     const present = await client`
-      SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'company_profile'`;
+      SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'stock_levels'`;
     if (present.length === 0) {
-      throw new ImportError("The database is not migrated to the S4 schema — run `pnpm --filter @farooq/api db:migrate` first.");
+      throw new ImportError("The database is not migrated to the S6 schema (migration 0005) — run `pnpm --filter @farooq/api db:migrate` first.");
     }
 
     return await db.transaction(async (tx) => {
@@ -107,7 +112,10 @@ export async function runImport(backup: unknown, opts: ImportOptions): Promise<I
       await insertChunked(r.products, 200, (c) => tx.insert(products).values(c));
       await insertChunked(r.customers, 200, (c) => tx.insert(customers).values(c));
       await insertChunked(r.suppliers, 200, (c) => tx.insert(suppliers).values(c));
-      await insertChunked(r.invoices, 200, (c) => tx.insert(invoices).values(c));
+      await insertChunked(r.invoices, 100, (c) => tx.insert(invoices).values(c));
+      await insertChunked(r.invoiceItems, 200, (c) => tx.insert(invoiceItems).values(c));
+      await insertChunked(r.stockLevels, 500, (c) => tx.insert(stockLevels).values(c));
+      await insertChunked(r.stockMovements, 300, (c) => tx.insert(stockMovements).values(c));
       await insertChunked(r.purchases, 200, (c) => tx.insert(purchases).values(c));
       await insertChunked(r.payments, 200, (c) => tx.insert(payments).values(c));
       await insertChunked(r.paymentAllocations, 500, (c) => tx.insert(paymentAllocations).values(c));
@@ -148,6 +156,9 @@ export async function runImport(backup: unknown, opts: ImportOptions): Promise<I
         customers: r.customers.length,
         suppliers: r.suppliers.length,
         invoices: r.invoices.length,
+        invoice_items: r.invoiceItems.length,
+        stock_levels: r.stockLevels.length,
+        stock_movements: r.stockMovements.length,
         purchases: r.purchases.length,
         payments: r.payments.length,
         payment_allocations: r.paymentAllocations.length,
@@ -167,6 +178,7 @@ export async function runImport(backup: unknown, opts: ImportOptions): Promise<I
           loaded,
           journalEntries: prepared.journal.length,
           journalLines: lines.length,
+          migratedInvoices: prepared.migratedInvoices,
           storeCounts: prepared.storeCounts,
         },
       });
@@ -178,6 +190,7 @@ export async function runImport(backup: unknown, opts: ImportOptions): Promise<I
         loaded,
         journalEntries: prepared.journal.length,
         journalLines: lines.length,
+        migratedInvoices: prepared.migratedInvoices,
         warnings: prepared.warnings,
       };
     });

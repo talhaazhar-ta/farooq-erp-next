@@ -7,6 +7,10 @@
  * returns, opening balances, reversals, drafts and cancellations were all broken. Every branch of the legacy
  * Ledger is exercised here, with hand-computed expectations in the tests (see test/legacy-ledger.test.ts).
  *
+ * S6 added invoice lines, a second warehouse, stock movements / inventory and the product prices. The 8 invoices keep their
+ * grand totals (so every balance below is unchanged); their lines, the stock they moved and the resulting quantities are
+ * worked out by hand in `test/invoice-lines-stock.test.ts` (header table and stock-level comments).
+ *
  * Money is integer paisa. Expected balances, worked out by hand:
  *   customers  C1 1,900,000  C2 100,000  C3 470,000  C4 15,000  C5 450,000  C6 0        (Σ 2,935,000)
  *   suppliers  S1 870,000    S2 390,000  S3 -40,000  S4 92,000   S5 0                    (Σ net 1,312,000; owed>0 1,352,000)
@@ -55,17 +59,79 @@ const supplier = (id: string, code: string, co: string, extra: Doc = {}): Doc =>
   ...extra,
 });
 
-const invoice = (id: string, no: string, customerId: string, invoiceDate: string, grandTotal: number, status: string, createdAt: string, extra: Doc = {}): Doc => ({
-  id, invoiceNumber: no, clientOpId: `op-${id}`, invoiceType: "SALE", saleOrderId: null, orderNumber: "", dispatchNumber: "",
-  customerId, customerCodeSnapshot: "", customerNameSnapshot: "", shopNameSnapshot: "", contactPersonSnapshot: "",
-  mobileSnapshot: "", whatsappSnapshot: "", addressSnapshot: "", regionId: "rg-a", regionSnapshot: "", marketSnapshot: "",
-  warehouseId: "wh-1", warehouseSnapshot: "Main Godown", salesperson: "", invoiceDate, dueDate: invoiceDate, subtotal: grandTotal,
-  discountAmount: 0, itemDiscounts: 0, invoiceDiscount: 0, taxAmount: 0, freightAmount: 0, loadingAmount: 0, otherCharges: 0,
-  grandTotal, paidAmount: 0, balanceAmount: grandTotal, paymentStatus: "UNPAID", paymentMethod: "", referenceNo: "", status,
-  notes: "", totalQty: 10, lineCount: 1, previousBalance: 0, revision: 1, createdBy: "Fixture", createdAt, updatedAt: createdAt,
-  confirmedAt: createdAt, cancelledAt: null, cancelReason: "", stockApplied: true,
-  ...extra,
-});
+/** One invoice line as the fixture author states it: quantity in bags (may be fractional), money in paisa. */
+interface LineSpec {
+  p: string;
+  wh?: string;
+  qty: number;
+  unit: number;
+  disc?: number;
+  tax?: number;
+  cost?: number;
+  returned?: number;
+}
+interface Charges {
+  invoiceDiscount?: number;
+  freight?: number;
+  loading?: number;
+  other?: number;
+}
+
+/** The invoice line documents, in the order they were built (`data.invoiceItems`). */
+const invoiceItemDocs: Doc[] = [];
+
+/**
+ * An invoice whose HEADER is worked out from its lines with plain integer arithmetic (deliberately not the shared
+ * `invoiceTotals`: the fixture is an independent witness, and the tests assert the hand-computed totals in the comment
+ * at the top of this file). `grandTotal` = subtotal − item discounts − invoice discount + tax + charges.
+ */
+const invoice = (id: string, no: string, customerId: string, invoiceDate: string, status: string, createdAt: string, lines: LineSpec[], charges: Charges = {}, extra: Doc = {}): Doc => {
+  const whId = (extra.warehouseId as string | undefined) ?? "wh-1";
+  const subtotal = lines.reduce((a, l) => a + Math.round(l.unit * l.qty), 0);
+  const itemDiscounts = lines.reduce((a, l) => a + (l.disc ?? 0), 0);
+  const taxAmount = lines.reduce((a, l) => a + (l.tax ?? 0), 0);
+  const invoiceDiscount = charges.invoiceDiscount ?? 0;
+  const freightAmount = charges.freight ?? 0;
+  const loadingAmount = charges.loading ?? 0;
+  const otherCharges = charges.other ?? 0;
+  const grandTotal = subtotal - itemDiscounts - invoiceDiscount + taxAmount + freightAmount + loadingAmount + otherCharges;
+  lines.forEach((l, i) => {
+    const gross = Math.round(l.unit * l.qty);
+    invoiceItemDocs.push({
+      id: `ii-${id}-${i + 1}`, invoiceId: id, sortOrder: i, productId: l.p, productVariantId: null,
+      descriptionSnapshot: `Fixture ${l.p}`, descriptionEnSnapshot: `Fixture ${l.p}`, brandSnapshot: "Fixture", categorySnapshot: "Flour",
+      packageSnapshot: "50 KG", skuSnapshot: `SKU-${l.p}`, unit: "Bag", quantity: l.qty, unitPrice: l.unit, discount: l.disc ?? 0,
+      tax: l.tax ?? 0, lineTotal: gross - (l.disc ?? 0) + (l.tax ?? 0), costSnapshot: l.cost ?? 0, warehouseId: l.wh ?? whId,
+      batchNo: "", notes: "", returnedQty: l.returned ?? 0,
+    });
+  });
+  return {
+    id, invoiceNumber: no, clientOpId: `op-${id}`, invoiceType: "SALE", saleOrderId: null, orderNumber: "", dispatchNumber: "",
+    customerId, customerCodeSnapshot: "", customerNameSnapshot: "", shopNameSnapshot: "", contactPersonSnapshot: "",
+    mobileSnapshot: "", whatsappSnapshot: "", addressSnapshot: "", regionId: "rg-a", regionSnapshot: "", marketSnapshot: "",
+    warehouseId: "wh-1", warehouseSnapshot: "Main Godown", salesperson: "", invoiceDate, dueDate: invoiceDate, subtotal,
+    discountAmount: itemDiscounts + invoiceDiscount, itemDiscounts, invoiceDiscount, taxAmount, freightAmount, loadingAmount, otherCharges,
+    grandTotal, paidAmount: 0, balanceAmount: grandTotal, paymentStatus: "UNPAID", paymentMethod: "", referenceNo: "", status,
+    notes: "", totalQty: lines.reduce((a, l) => a + l.qty, 0), lineCount: lines.length, previousBalance: 0, revision: 1, createdBy: "Fixture",
+    createdAt, updatedAt: createdAt, confirmedAt: createdAt, cancelledAt: null, cancelReason: "", stockApplied: true,
+    ...extra,
+  };
+};
+
+/* ── stock: every movement carries the running balance the legacy stamps on it, so the fixture's own
+      `balanceAfter` chains are consistent by construction; the final `inventory` rows are worked out from the same sums. ── */
+const runningMilli = new Map<string, number>();
+let movementSeq = 0;
+const movement = (day: string, time: string, productId: string, warehouseId: string, kind: string, qtyDelta: number, refType: string, ref: string, extra: { bucket?: string; unitCostP?: number; note?: string } = {}): Doc => {
+  const bucket = extra.bucket ?? "stock";
+  const key = `${productId}|${warehouseId}|${bucket}`;
+  const next = (runningMilli.get(key) ?? 0) + Math.round(qtyDelta * 1000);
+  runningMilli.set(key, next);
+  return {
+    id: `mv-${++movementSeq}`, createdAt: T(day, time), date: day, productId, warehouseId, kind, qtyDelta, bucket, balanceAfter: next / 1000,
+    ref, refType, note: extra.note ?? "", unitCostP: extra.unitCostP ?? 0, userId: "Fixture",
+  };
+};
 
 const purchase = (id: string, no: string, supplierId: string, purchaseDate: string, grandTotal: number, status: string, createdAt: string): Doc => ({
   id, purchaseNumber: no, clientOpId: `op-${id}`, supplierId, supplierNameSnapshot: "", supplierInvoiceNo: "", warehouseId: "wh-1",
@@ -127,12 +193,21 @@ const seq = (kind: string, n: number) => ({ k: `${kind}:2026`, kind, year: 2026,
 /* ── the fixture ─────────────────────────────────────────────────────────── */
 
 export function buildFixture() {
+  // module-level builders keep running state (line documents, stock balances): a fresh fixture starts from nothing
+  invoiceItemDocs.length = 0;
+  runningMilli.clear();
+  movementSeq = 0;
   const data: Record<string, Doc[]> = {
     regions: [region("rg-a", "Alpha Bazar", "الفا بازار", ["R1"]), region("rg-b", "Beta Mandi", "بیٹا منڈی")],
-    warehouses: [{ id: "wh-1", name: "Main Godown", active: true }],
+    warehouses: [{ id: "wh-1", name: "Main Godown", active: true }, { id: "wh-2", name: "Second Godown", active: true }],
     products: [
-      product("p-1", "Fixture Flour 50kg"),
-      product("p-2", "Fixture Sugar 50kg", { category: "Sugar", cat: "Sugar" }),
+      // the Prices panel has been used on this one: the `...P` paisa fields AND the mirrored rupee fields (21-settings.js writes both)
+      product("p-1", "Fixture Flour 50kg", {
+        buyP: 80_000, buy: 800, extraP: 2000, extra: 20, sellP: 100_000, sell: 1000, minSellP: 95_000, min: 950, wholesaleP: 98_000,
+        retailP: 105_000, discountPct: 2.5, taxPct: 5, reorder: 20,
+      }),
+      // only the legacy rupee fields (never opened in the Prices panel): 900.50 rupees = 90,050 paisa
+      product("p-2", "Fixture Sugar 50kg", { category: "Sugar", cat: "Sugar", sell: 900.5, min: 850 }),
       // like 3 real products: an older shape with no `name`/`category`/`unit` — the importer falls back to en / cat
       { id: "p-3", ur: "Fixture Rice", en: "Fixture Rice", brand: "Fixture", brandEn: "Fixture", cat: "Rice", kg: 25, sku: "SKU-p-3", barcode: "", supplier: "", buy: 0, sell: 0, min: 0, active: true },
     ],
@@ -156,15 +231,35 @@ export function buildFixture() {
       supplier("sup-5", "S05", "Vega Traders", { legacyTotalSales: 5000, legacyBalanceSigned: 5000 }),
     ],
     invoices: [
-      // several documents on the same day (tie-break by createdAt): inv-1 then inv-2
-      invoice("inv-1", "INV-2026-000001", "cust-1", "2026-02-01", 1000000, "CONFIRMED", T("2026-02-01", "05:00:00")),
-      invoice("inv-2", "INV-2026-000002", "cust-1", "2026-02-01", 500000, "PAID", T("2026-02-01", "06:00:00")),
-      invoice("inv-3", "", "cust-1", "2026-02-03", 999999, "DRAFT", T("2026-02-03", "05:00:00")), // drafts take no number
-      invoice("inv-4", "INV-2026-000003", "cust-1", "2026-02-04", 888888, "CANCELLED", T("2026-02-04", "05:00:00"), { cancelledAt: T("2026-02-04", "07:00:00"), cancelReason: "typo" }),
-      invoice("inv-5", "INV-2026-000004", "cust-2", "2026-02-10", 300000, "CONFIRMED", T("2026-02-10", "05:00:00")),
-      invoice("inv-6", "INV-2026-000005", "cust-3", "2026-02-11", 750000, "PARTIALLY_PAID", T("2026-02-11", "05:00:00")),
-      invoice("inv-7", "INV-2026-000006", "cust-5", "2026-02-12", 400000, "CONFIRMED", T("2026-02-12", "05:00:00")),
-      invoice("inv-8", "INV-2026-000007", "cust-1", "2026-02-15", 600000, "PARTIALLY_RETURNED", T("2026-02-15", "05:00:00")),
+      // several documents on the same day (tie-break by createdAt): inv-1 then inv-2. Lines are worked out by hand in the header
+      // comment; p-1 costs 80,000 a bag, p-2 85,000, p-3 has no recorded cost (0).
+      invoice("inv-1", "INV-2026-000001", "cust-1", "2026-02-01", "CONFIRMED", T("2026-02-01", "05:00:00"),
+        [{ p: "p-1", qty: 10, unit: 100_000, cost: 80_000 }]),
+      // TWO lines, one with an item discount; EDITED after posting (revision 2: the stock was reversed and re-deducted)
+      invoice("inv-2", "INV-2026-000002", "cust-1", "2026-02-01", "PAID", T("2026-02-01", "06:00:00"),
+        [{ p: "p-2", qty: 4, unit: 90_000, cost: 85_000 }, { p: "p-3", qty: 2, unit: 80_000, disc: 20_000, cost: 0 }],
+        {}, { revision: 2, previousBalance: 1_000_000, updatedAt: T("2026-02-02", "05:00:00") }),
+      // a DRAFT with lines: no number, no stock, stockApplied false — and it is not in the ledger
+      invoice("inv-3", "", "cust-1", "2026-02-03", "DRAFT", T("2026-02-03", "05:00:00"),
+        [{ p: "p-1", qty: 3, unit: 333_333, cost: 80_000 }], {}, { stockApplied: false, confirmedAt: null, revision: 0 }),
+      // CANCELLED: its stock came back (INVOICE_CANCEL), stockApplied false
+      invoice("inv-4", "INV-2026-000003", "cust-1", "2026-02-04", "CANCELLED", T("2026-02-04", "05:00:00"),
+        [{ p: "p-2", qty: 2, unit: 444_444, cost: 85_000 }], {}, { cancelledAt: T("2026-02-04", "07:00:00"), cancelReason: "typo", stockApplied: false }),
+      // the rich one: two lines from two godowns (header on wh-2), item discount, a taxed line, an invoice discount, all three
+      // charges, a negative (credit) previous balance; DISPATCHED (a dispatch note exists)
+      invoice("inv-5", "INV-2026-000004", "cust-2", "2026-02-10", "DISPATCHED", T("2026-02-10", "05:00:00"),
+        [{ p: "p-1", wh: "wh-2", qty: 3, unit: 100_000, disc: 15_000, cost: 80_000 }, { p: "p-2", wh: "wh-1", qty: 2, unit: 50_000, tax: 5000, cost: 85_000 }],
+        { invoiceDiscount: 110_000, freight: 12_000, loading: 5000, other: 3000 },
+        { warehouseId: "wh-2", warehouseSnapshot: "Second Godown", dispatchNumber: "DSP-2026-000001", previousBalance: -200_000, paymentMethod: "Cash", referenceNo: "REF-5", notes: "deliver in the morning", salesperson: "Ali" }),
+      // a FRACTIONAL quantity: 2.5 bags
+      invoice("inv-6", "INV-2026-000005", "cust-3", "2026-02-11", "PARTIALLY_PAID", T("2026-02-11", "05:00:00"),
+        [{ p: "p-1", qty: 2.5, unit: 300_000, cost: 80_000 }]),
+      // made by the old app's data migration: stockApplied true but NO SALE_OUT movement (no lines' stock was ever taken)
+      invoice("inv-7", "INV-2026-000006", "cust-5", "2026-02-12", "CONFIRMED", T("2026-02-12", "05:00:00"),
+        [{ p: "p-3", qty: 5, unit: 80_000, cost: 0 }], {}, { migrated: true, salesperson: "Migrated", createdBy: "system", notes: "Migrated from the previous single-product sale record s-1" }),
+      // PARTIALLY_RETURNED: 0.6 bag of the first line came back (credit note cr-1 = 0.6 x 100,000 = 60,000), as damaged stock
+      invoice("inv-8", "INV-2026-000007", "cust-1", "2026-02-15", "PARTIALLY_RETURNED", T("2026-02-15", "05:00:00"),
+        [{ p: "p-1", qty: 4, unit: 100_000, cost: 80_000, returned: 0.6 }, { p: "p-2", qty: 2, unit: 100_000, cost: 85_000 }]),
     ],
     purchases: [
       purchase("pur-1", "PUR-2026-000001", "sup-1", "2026-02-20", 900000, "RECEIVED", T("2026-02-20", "09:00:00")),
@@ -219,8 +314,50 @@ export function buildFixture() {
     ],
 
     // ── deferred / ignored stores: present so the counts are reconciled, contents fabricated ──
-    invoiceItems: [{ id: "ii-1", invoiceId: "inv-1", sortOrder: 0, productId: "p-1", quantity: 10, unitPrice: 100000, lineTotal: 1000000 }],
-    inventory: [{ id: "inv-row-1", productId: "p-1", warehouseId: "wh-1", qty: 5, damagedQty: 0, avgCostP: 90000 }],
+    invoiceItems: invoiceItemDocs,
+    // Final stock, worked out by hand (bags): p-1@wh-1 90.5 (+0.6 damaged), p-1@wh-2 32, p-2@wh-1 52, p-3@wh-1 38 — see stockMovements
+    inventory: [
+      { id: "p-1|wh-1", productId: "p-1", warehouseId: "wh-1", qty: 90.5, damagedQty: 0.6, avgCostP: 79_000, lastCostP: 75_000 },
+      { id: "p-1|wh-2", productId: "p-1", warehouseId: "wh-2", qty: 32, damagedQty: 0, avgCostP: 80_000, lastCostP: 0 },
+      { id: "p-2|wh-1", productId: "p-2", warehouseId: "wh-1", qty: 52, damagedQty: 0, avgCostP: 85_000, lastCostP: 85_000 },
+      { id: "p-3|wh-1", productId: "p-3", warehouseId: "wh-1", qty: 38, damagedQty: 0, avgCostP: 0, lastCostP: 0 },
+    ],
+    stockMovements: [
+      // stock in (January): the legacy names a stock-receipt document in `ref`; stock documents are M4, so it is carried by name
+      movement("2026-01-10", "09:00:00", "p-1", "wh-1", "OPENING_STOCK", 100, "STOCK_RECEIPT", "RCV-2026-000001", { unitCostP: 80_000 }),
+      movement("2026-01-10", "09:00:01", "p-2", "wh-1", "ADJUSTMENT_IN", 60, "STOCK_RECEIPT", "RCV-2026-000002", { unitCostP: 85_000 }),
+      movement("2026-01-10", "09:00:02", "p-3", "wh-1", "ADJUSTMENT_IN", 40, "STOCK_RECEIPT", "RCV-2026-000003"),
+      movement("2026-01-10", "09:00:03", "p-1", "wh-2", "ADJUSTMENT_IN", 30, "STOCK_RECEIPT", "RCV-2026-000004", { unitCostP: 80_000 }),
+      // inv-1
+      movement("2026-02-01", "05:00:10", "p-1", "wh-1", "SALE_OUT", -10, "INVOICE", "INV-2026-000001", { note: "Al-Noor Traders" }),
+      // inv-2: first posted with p-3 x 3, then EDITED to p-3 x 2 — the legacy reverses every old line and deducts the new ones
+      movement("2026-02-01", "06:00:10", "p-2", "wh-1", "SALE_OUT", -4, "INVOICE", "INV-2026-000002", { note: "Al-Noor Traders" }),
+      movement("2026-02-01", "06:00:11", "p-3", "wh-1", "SALE_OUT", -3, "INVOICE", "INV-2026-000002", { note: "Al-Noor Traders" }),
+      movement("2026-02-02", "05:00:10", "p-2", "wh-1", "SALE_REVERSAL_IN", 4, "INVOICE_EDIT", "INV-2026-000002", { note: "Reversed on invoice edit" }),
+      movement("2026-02-02", "05:00:11", "p-3", "wh-1", "SALE_REVERSAL_IN", 3, "INVOICE_EDIT", "INV-2026-000002", { note: "Reversed on invoice edit" }),
+      movement("2026-02-02", "05:00:12", "p-2", "wh-1", "SALE_OUT", -4, "INVOICE", "INV-2026-000002", { note: "Al-Noor Traders" }),
+      movement("2026-02-02", "05:00:13", "p-3", "wh-1", "SALE_OUT", -2, "INVOICE", "INV-2026-000002", { note: "Al-Noor Traders" }),
+      // inv-4: sold, then CANCELLED — the bags came back
+      movement("2026-02-04", "05:00:10", "p-2", "wh-1", "SALE_OUT", -2, "INVOICE", "INV-2026-000003", { note: "Al-Noor Traders" }),
+      movement("2026-02-04", "07:00:10", "p-2", "wh-1", "SALE_REVERSAL_IN", 2, "INVOICE_CANCEL", "INV-2026-000003", { note: "Invoice cancelled — typo" }),
+      // inv-5: two godowns
+      movement("2026-02-10", "05:00:10", "p-1", "wh-2", "SALE_OUT", -3, "INVOICE", "INV-2026-000004", { note: "Bismillah Store" }),
+      movement("2026-02-10", "05:00:11", "p-2", "wh-1", "SALE_OUT", -2, "INVOICE", "INV-2026-000004", { note: "Bismillah Store" }),
+      // inv-6: 2.5 bags
+      movement("2026-02-11", "05:00:10", "p-1", "wh-1", "SALE_OUT", -2.5, "INVOICE", "INV-2026-000005", { note: "Cash Counter" }),
+      // inv-7 is a migrated invoice: NO movement here (that is the point)
+      // inv-8, then its return: 0.6 bag came back damaged (the damaged bucket)
+      movement("2026-02-15", "05:00:10", "p-1", "wh-1", "SALE_OUT", -4, "INVOICE", "INV-2026-000007", { note: "Al-Noor Traders" }),
+      movement("2026-02-15", "05:00:11", "p-2", "wh-1", "SALE_OUT", -2, "INVOICE", "INV-2026-000007", { note: "Al-Noor Traders" }),
+      movement("2026-02-16", "06:00:10", "p-1", "wh-1", "CUSTOMER_RETURN_DAMAGED_IN", 0.6, "CUSTOMER_RETURN", "CR-2026-000001", { bucket: "damaged", note: "Return CR-2026-000001" }),
+      // pur-1 (received), edited once (reverse + re-add): PURCHASE_EDIT links to the purchase by its number too
+      movement("2026-02-20", "09:00:10", "p-1", "wh-1", "PURCHASE_IN", 12, "PURCHASE", "PUR-2026-000001", { unitCostP: 75_000, note: "Sunrise Mills Ltd" }),
+      movement("2026-02-21", "09:00:10", "p-1", "wh-1", "PURCHASE_REVERSAL_OUT", -12, "PURCHASE_EDIT", "PUR-2026-000001", { note: "Reversed on purchase edit" }),
+      movement("2026-02-21", "09:00:11", "p-1", "wh-1", "PURCHASE_IN", 12, "PURCHASE", "PUR-2026-000001", { unitCostP: 75_000, note: "Sunrise Mills Ltd" }),
+      // a transfer between the two godowns
+      movement("2026-02-22", "10:00:10", "p-1", "wh-1", "TRANSFER_OUT", -5, "TRANSFER", "TRF-2026-000001"),
+      movement("2026-02-22", "10:00:11", "p-1", "wh-2", "TRANSFER_IN", 5, "TRANSFER", "TRF-2026-000001"),
+    ],
     operations: [{ opId: "op-inv-1", entity: "Invoice", entityId: "inv-1", ref: "INV-2026-000001", createdAt: T("2026-02-01", "05:00:00"), state: "DONE" }],
     // credentials store: fabricated pin/salt; must never be imported or read
     users: [{ id: "u-1", createdAt: T("2026-01-01", "00:00:00"), createdBy: "system", pin: "FIXTURE-PIN-HASH", salt: "FIXTURE-SALT", active: true, lastSignIn: null, name: "Fixture Owner", role: "OWNER" }],
@@ -240,7 +377,7 @@ export function buildFixture() {
   };
   // every other store the real backup has, empty
   for (const s of [
-    "purchaseItems", "customerReturnItems", "supplierReturnItems", "stockMovements", "stockDocs", "stockDocItems", "orders", "orderItems",
+    "purchaseItems", "customerReturnItems", "supplierReturnItems", "stockDocs", "stockDocItems", "orders", "orderItems",
     "expenses", "landedCosts", "landedCostExpenses", "inventoryCostAdjust", "employees", "salaryPayments", "millingJobItems",
     "millingArrivals", "supplierProducts", "priceHistory", "priceApprovals", "costHistory", "salesmen", "documents", "documentEdits",
     "auditLog", "migrationBackups",

@@ -16,10 +16,13 @@
 export const IMPORTED_STORES = {
   regions: "master data; customers reference them",
   warehouses: "master data",
-  products: "master data (headers only; costs/prices/stock arrive with M2-M4)",
+  products: "master data + the catalogue fields and Prices-panel prices the invoice builder needs (S6)",
   customers: "master data + opening balance; the receivables side of the ledger",
   suppliers: "master data + opening balance; the payables side of the ledger",
-  invoices: "header only; feeds Ledger.customer",
+  invoices: "full header (S6) + status; feeds Ledger.customer",
+  invoiceItems: "invoice lines (S6): what was sold, at what price, out of which warehouse; reconciliation recomputes every invoice total from them",
+  inventory: "current stock per product x warehouse (S6) -> stock_levels; reconciliation proves it equals the sum of the movements",
+  stockMovements: "the stock ledger (S6) -> stock_movements; append-only, every stock quantity is the sum of its movements",
   purchases: "header only; feeds Ledger.supplier",
   payments: "feeds both ledgers; S3 builds the payment services on these rows",
   paymentAllocations: "payment -> invoice/purchase allocations",
@@ -44,14 +47,12 @@ export type VerbatimStore = (typeof VERBATIM_STORES)[number];
 
 /** Stores counted but not loaded: they belong to a later milestone and do not feed either ledger. */
 export const DEFERRED_STORES = {
-  invoiceItems: "invoice line items — M2",
   purchaseItems: "purchase line items — M3",
-  customerReturnItems: "return line items — M2",
+  customerReturnItems: "return line items — M5",
   supplierReturnItems: "return line items — M3",
-  inventory: "stock — M4",
-  stockMovements: "stock — M4",
-  stockDocs: "stock — M4",
-  stockDocItems: "stock — M4",
+  stockDocs:
+    "stock documents (receive / dispatch / transfer / adjust) — M4; their stock effect is already inside stockMovements, only the documents themselves wait",
+  stockDocItems: "stock document lines — M4 (their stock effect is already inside stockMovements)",
   orders: "sales orders — M2",
   orderItems: "sales order lines — M2",
   expenses: "expenses — later milestone",
@@ -102,22 +103,32 @@ const DERIVED_CACHE = "cache derived from allocations/ledger at write time; reco
 export const FIELD_CLASSES: Record<Exclude<ImportedStore, VerbatimStore>, FieldClass> = {
   regions: {
     mapped: ["id", "en", "ur", "active"],
-    docOnly: [{ reason: "route names — later master-data work", keys: ["routes"] }],
+    docOnly: [
+      { reason: "route names — later master-data work", keys: ["routes"] },
+      { reason: "edit timestamp added by the old app's master-data work (first seen in the 2026-09-23 nightly)", keys: ["updatedAt"] },
+    ],
     ignored: [],
   },
   warehouses: { mapped: ["id", "name", "active"], docOnly: [], ignored: [] },
   products: {
     // name falls back to en, then ur (3 real products lack `name`); category falls back to cat.
-    mapped: ["id", "name", "en", "ur", "category", "cat", "unit", "active"],
+    mapped: [
+      "id", "name", "en", "ur", "category", "cat", "unit", "active",
+      // catalogue (S6): products.name_ur / name_en / brand / brand_en / weight_kg / sku / barcode
+      "brand", "brandEn", "kg", "weightKg", "sku", "barcode",
+      // the Prices panel (S6, mirrors Prices.of in 21-settings.js): the `...P` field when present, else the legacy rupee field.
+      // None of the set-price fields exists in the real data yet (buy/sell/min are null on every row); they appear the
+      // moment the owner uses the Prices panel, and the importer must keep working then — hence pre-classified here.
+      "buy", "sell", "min", "extra", "buyP", "sellP", "extraP", "minSellP", "wholesaleP", "retailP", "discountPct", "taxPct", "reorder",
+    ],
     docOnly: [
       {
-        reason: "product catalogue detail (prices, weights, import provenance) — M2/M4",
+        reason: "product provenance / catalogue review flags — kept in legacy_doc, nothing reads them",
         keys: [
-          "brand", "brandEn", "kg", "sku", "barcode", "supplier", "buy", "sell", "min", "notes", "sourceCode",
-          "sourceFolio", "normalizedName", "nameEn", "searchAliases", "categoryRaw", "productType", "weightKg",
-          "catalogListedValue", "catalogValueIsNull", "priceTypeConfirmed", "priceConfirmed", "zeroListedValue",
-          "supplierIds", "needsReview", "reviewReason", "duplicateCandidate", "categoryNeedsReview", "sourceFile",
-          "sourcePage",
+          "supplier", "notes", "sourceCode", "sourceFolio", "normalizedName", "nameEn", "searchAliases", "categoryRaw",
+          "productType", "catalogListedValue", "catalogValueIsNull", "priceTypeConfirmed", "priceConfirmed",
+          "zeroListedValue", "supplierIds", "needsReview", "reviewReason", "duplicateCandidate", "categoryNeedsReview",
+          "sourceFile", "sourcePage",
         ],
       },
     ],
@@ -136,6 +147,11 @@ export const FIELD_CLASSES: Record<Exclude<ImportedStore, VerbatimStore>, FieldC
           "term", "last", "needsReview", "reviewReason", "possibleDuplicate", "sourceFile", "updatedAt",
           "lim", // credit limit: null in every real row and its unit is unverified — M2 decides
         ],
+      },
+      {
+        // first seen in the 2026-09-23 nightly (old ERP master-data work since the last import): kept, not yet used here
+        reason: "salesman assignment (`salesmanId`, the `salesmen` store is deferred) and the credit limit under its new name `limit` — later master-data work",
+        keys: ["salesmanId", "limit"],
       },
       { reason: PAPER_BOOK, keys: ["legacyTotalSales", "legacyTotalCollection", "legacyBalanceSigned"] },
     ],
@@ -156,22 +172,50 @@ export const FIELD_CLASSES: Record<Exclude<ImportedStore, VerbatimStore>, FieldC
     ignored: [{ reason: STALE_CACHE, keys: ["paid", "due", "last"] }],
   },
   invoices: {
-    mapped: ["id", "invoiceNumber", "customerId", "invoiceDate", "grandTotal", "status", "createdAt"],
+    mapped: [
+      "id", "invoiceNumber", "customerId", "invoiceDate", "grandTotal", "status", "createdAt",
+      // the rest of the header (S6): the invoices.* columns of migration 0005
+      "invoiceType", "saleOrderId", "orderNumber", "dispatchNumber", "customerCodeSnapshot", "customerNameSnapshot",
+      "shopNameSnapshot", "contactPersonSnapshot", "mobileSnapshot", "whatsappSnapshot", "addressSnapshot", "regionId",
+      "regionSnapshot", "marketSnapshot", "warehouseId", "warehouseSnapshot", "salesperson", "dueDate", "subtotal",
+      "itemDiscounts", "invoiceDiscount", "taxAmount", "freightAmount", "loadingAmount", "otherCharges", "paymentMethod",
+      "referenceNo", "notes", "description", "totalQty", "lineCount", "previousBalance", "revision", "updatedAt",
+      "confirmedAt", "cancelledAt", "cancelReason", "stockApplied",
+      "migrated", // only on invoices the old app's data migration made (02-services.js ~2160): stockApplied WITHOUT SALE_OUT movements
+    ],
     docOnly: [
+      { reason: "the old client's offline-sync idempotency key; the new API has its own", keys: ["clientOpId"] },
+      { reason: "display name of the saver (invoices.created_by is a user id, null on imports)", keys: ["createdBy"] },
       {
-        reason: "invoice detail — M2 (line items, snapshots, charges)",
-        keys: [
-          "clientOpId", "invoiceType", "saleOrderId", "orderNumber", "dispatchNumber", "customerCodeSnapshot",
-          "customerNameSnapshot", "shopNameSnapshot", "contactPersonSnapshot", "mobileSnapshot", "whatsappSnapshot",
-          "addressSnapshot", "regionId", "regionSnapshot", "marketSnapshot", "warehouseId", "warehouseSnapshot",
-          "salesperson", "dueDate", "subtotal", "discountAmount", "itemDiscounts", "invoiceDiscount", "taxAmount",
-          "freightAmount", "loadingAmount", "otherCharges", "paymentMethod", "referenceNo", "notes", "totalQty",
-          "lineCount", "previousBalance", "revision", "createdBy", "updatedAt", "confirmedAt", "cancelledAt",
-          "cancelReason", "stockApplied", "description",
-        ],
+        reason: "derived: itemDiscounts + invoiceDiscount; reconciliation checks it against the recomputation from the lines",
+        keys: ["discountAmount"],
       },
     ],
     ignored: [{ reason: DERIVED_CACHE, keys: ["paidAmount", "balanceAmount", "paymentStatus"] }],
+  },
+  invoiceItems: {
+    mapped: [
+      "id", "invoiceId", "sortOrder", "productId", "warehouseId", "descriptionSnapshot", "descriptionEnSnapshot",
+      "brandSnapshot", "categorySnapshot", "packageSnapshot", "skuSnapshot", "unit", "quantity", "unitPrice", "discount",
+      "tax", "lineTotal", "costSnapshot", "returnedQty", "batchNo", "notes",
+    ],
+    docOnly: [{ reason: "product variants are not used (null on every real line)", keys: ["productVariantId"] }],
+    ignored: [],
+  },
+  inventory: {
+    mapped: ["productId", "warehouseId", "qty", "damagedQty", "avgCostP", "lastCostP"],
+    docOnly: [],
+    ignored: [{ reason: "derived key `<productId>|<warehouseId>`; the pair is what is used (a duplicate pair aborts)", keys: ["id"] }],
+  },
+  stockMovements: {
+    mapped: [
+      "id", "createdAt", "date", "productId", "warehouseId", "kind", "qtyDelta", "bucket", "ref", "refType", "note", "unitCostP",
+    ],
+    docOnly: [
+      { reason: "running balance stamped at write time; read only by the informational balance-chain check", keys: ["balanceAfter"] },
+      { reason: "display name of the user (stock_movements.created_by is a user id, null on imports)", keys: ["userId"] },
+    ],
+    ignored: [],
   },
   purchases: {
     mapped: ["id", "purchaseNumber", "supplierId", "purchaseDate", "grandTotal", "status", "createdAt"],

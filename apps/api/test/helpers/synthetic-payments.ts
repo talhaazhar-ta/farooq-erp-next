@@ -173,7 +173,7 @@ export function buildSyntheticBackup(opts: SyntheticOptions = {}): Backup {
   data.paymentAllocations = allocations;
 
   // stores the importer cross-checks against the parties above: none in this dataset
-  for (const s of ["customerReturns", "supplierReturns", "accountAdjustments", "millingJobs", "invoiceItems", "inventory", "operations"]) data[s] = [];
+  for (const s of ["customerReturns", "supplierReturns", "accountAdjustments", "millingJobs", "invoiceItems", "inventory", "stockMovements", "operations"]) data[s] = [];
   data.sequences = [{ k: "REC:2026", kind: "REC", year: 2026, n: counters.REC, updatedAt: "2026-09-20T09:00:00.000Z" }, { k: "PV:2026", kind: "PV", year: 2026, n: counters.PV, updatedAt: "2026-09-20T09:00:00.000Z" }];
 
   const counts: Record<string, number> = {};

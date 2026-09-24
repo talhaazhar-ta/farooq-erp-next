@@ -36,6 +36,13 @@
       "when": 1790193791391,
       "tag": "0004_s4_search_receipt",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790223667206,
+      "tag": "0005_s6_invoice_lines_stock",
+      "breakpoints": true
     }
   ]
 }

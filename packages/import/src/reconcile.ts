@@ -1,6 +1,7 @@
 import postgres from "postgres";
 import { createLegacyLedger, type LedgerRow } from "./legacy-ledger.js";
 import { assertLocalDatabaseUrl } from "./load.js";
+import { checkInvoicesAndStock } from "./reconcile-stock.js";
 import { classifyStore, type Backup } from "./validate.js";
 
 /**
@@ -21,6 +22,30 @@ export interface StatementMismatch {
   store: "customers" | "suppliers";
   legacyId: string;
   detail: string;
+}
+
+/** One invoice whose lines do not add up to what the header says (or whose lines do not add up at all). */
+export interface InvoiceMismatch {
+  invoice: string;
+  problems: string[];
+}
+
+/** One product x warehouse x bucket whose legacy quantity, stock level and sum of movements are not all equal. */
+export interface StockMismatch {
+  product: string;
+  warehouse: string;
+  bucket: string;
+  legacyMilli: number;
+  levelMilli: number;
+  movementsMilli: number;
+}
+
+/** One invoice whose stock movements do not net to what its lines say they should. */
+export interface InvoiceStockMismatch {
+  invoice: string;
+  product: string;
+  expectedMilli: number;
+  netMilli: number;
 }
 
 export interface CountRow {
@@ -46,6 +71,34 @@ export interface ReconciliationReport {
   counts: CountRow[];
   statements: { partiesCompared: number; mismatches: StatementMismatch[]; intraDayOrderDiffs: number };
   paperBook: { customers: number; suppliers: number };
+  /** S6: every invoice's total recomputed from its lines with the shared port of the legacy `Calc`. */
+  invoices: {
+    /** Non-draft invoices that have lines: recomputed and compared. */
+    checked: number;
+    lines: number;
+    /** Σ quantity on the checked invoices' lines, thousandths of a bag. */
+    qtyMilli: number;
+    totalMismatches: InvoiceMismatch[];
+    /** Non-draft invoices with no lines (possible for migrated ones): listed, not failed. */
+    noLines: string[];
+    drafts: number;
+    /** Invoices the old app's data migration made: checked too, but a mismatch is informational (their totals never came from Calc). */
+    migrated: string[];
+    migratedMismatches: InvoiceMismatch[];
+  };
+  /** S6: legacy inventory = stock_levels = Σ stock_movements, per product x warehouse x bucket. */
+  stock: {
+    rows: number;
+    movements: number;
+    /** Σ stock-bucket / damaged-bucket quantity, thousandths. */
+    stockQtyMilli: number;
+    damagedQtyMilli: number;
+    mismatches: StockMismatch[];
+    /** Informational: legacy `balanceAfter` chains that do not follow their own movements. */
+    chainGaps: number;
+  };
+  /** S6: a posted invoice's stock movements net to minus its line quantities (an edit's reversal + re-deduct nets out). */
+  invoiceStock: { invoicesChecked: number; migratedSkipped: number; movementsChecked: number; mismatches: InvoiceStockMismatch[] };
 }
 
 /** Which table (and filter) holds each imported store's rows. */
@@ -65,6 +118,10 @@ const LOADED_COUNT_SQL: Record<string, string> = {
   accountAdjustments: "SELECT count(*) AS n FROM account_adjustments",
   millingJobs: "SELECT count(*) AS n FROM milling_jobs",
   business: "SELECT count(*) AS n FROM company_profile",
+  invoiceItems: "SELECT count(*) AS n FROM invoice_items",
+  // one legacy inventory row = a stock row (+ a damaged row when it holds damaged stock)
+  inventory: "SELECT count(*) AS n FROM (SELECT DISTINCT product_id, warehouse_id FROM stock_levels) x",
+  stockMovements: "SELECT count(*) AS n FROM stock_movements",
 };
 
 /** 0 when the backup reconciles to the paisa, 1 otherwise — the CLI's process exit code. */
@@ -281,6 +338,12 @@ export async function reconcile(backup: Backup, databaseUrl: string): Promise<Re
     compareStatements("suppliers", legacy.supplierIds, supplierUuid, legacySupplier, newSupp, true);
     if (mismatches.length) failures.push(`${mismatches.length} statement mismatch(es)`);
 
+    /* ── invoice lines + stock (S6) ────────────────────────────────────── */
+    const { invoices, stock, invoiceStock } = await checkInvoicesAndStock(client, backup);
+    if (invoices.totalMismatches.length) failures.push(`${invoices.totalMismatches.length} invoice total mismatch(es) (lines vs header)`);
+    if (stock.mismatches.length) failures.push(`${stock.mismatches.length} stock quantity mismatch(es) (inventory vs stock levels vs movements)`);
+    if (invoiceStock.mismatches.length) failures.push(`${invoiceStock.mismatches.length} invoice/stock mismatch(es) (movements vs invoice lines)`);
+
     return {
       ok: failures.length === 0,
       exportedAt: backup.exportedAt,
@@ -293,6 +356,9 @@ export async function reconcile(backup: Backup, databaseUrl: string): Promise<Re
       counts,
       statements: { partiesCompared: customers.compared + suppliers.compared, mismatches, intraDayOrderDiffs },
       paperBook: legacy.paperBookParties(),
+      invoices,
+      stock,
+      invoiceStock,
     };
   } finally {
     await client.end();
@@ -329,6 +395,29 @@ export function formatReport(r: ReconciliationReport): string {
   }
   out.push("");
   out.push(`Statements     ${n(r.statements.partiesCompared)} parties compared, ${r.statements.mismatches.length} row mismatch(es); ${r.statements.intraDayOrderDiffs} party statement(s) list same-day rows in a different order (informational — legacy tie-break quirk)`);
+  const bags = (m: number) => (m / 1000).toLocaleString("en-US", { maximumFractionDigits: 3 });
+  const inv = r.invoices;
+  out.push(
+    `Invoices       ${n(inv.checked)} checked (totals recomputed from ${n(inv.lines)} lines, ${bags(inv.qtyMilli)} bags), ${inv.totalMismatches.length} total mismatch(es); ` +
+      `${inv.drafts} draft(s) not checked, ${inv.noLines.length} posted invoice(s) without lines`,
+  );
+  for (const m of inv.totalMismatches) out.push(`  ✗ invoice ${m.invoice}: ${m.problems.join("; ")}`);
+  if (inv.migrated.length) {
+    out.push(`  note: ${inv.migrated.length} invoice(s) were made by the old app's data migration (stock applied, no SALE_OUT movements): ${inv.migrated.join(", ")}`);
+    for (const m of inv.migratedMismatches) out.push(`  · migrated invoice ${m.invoice} (informational — its totals never came from Calc): ${m.problems.join("; ")}`);
+  }
+  if (inv.noLines.length) out.push(`  note: no lines on ${inv.noLines.slice(0, 8).join(", ")}${inv.noLines.length > 8 ? ` … and ${inv.noLines.length - 8} more` : ""}`);
+  const st = r.stock;
+  out.push(
+    `Stock          ${n(st.rows)} product x warehouse x bucket rows, ${n(st.movements)} movements, ${bags(st.stockQtyMilli)} bags in stock + ${bags(st.damagedQtyMilli)} damaged; ` +
+      `${st.mismatches.length} mismatch(es) (legacy inventory = stock level = Σ movements); ${st.chainGaps} balance-chain gap(s) in the legacy running figures (informational)`,
+  );
+  for (const m of st.mismatches) {
+    out.push(`  ✗ product ${m.product} @ warehouse ${m.warehouse} [${m.bucket}]: legacy ${bags(m.legacyMilli)}, level ${bags(m.levelMilli)}, Σ movements ${bags(m.movementsMilli)}`);
+  }
+  const is = r.invoiceStock;
+  out.push(`Invoice↔stock  ${n(is.invoicesChecked)} invoices vs ${n(is.movementsChecked)} invoice movements, ${is.mismatches.length} mismatch(es); ${is.migratedSkipped} migrated invoice(s) skipped`);
+  for (const m of is.mismatches) out.push(`  ✗ invoice ${m.invoice}, product ${m.product}: lines say ${bags(m.expectedMilli)}, movements net ${bags(m.netMilli)}`);
   out.push(`Paper-book     ${r.paperBook.customers} customers and ${r.paperBook.suppliers} suppliers carry a nonzero legacy paper-book figure — deliberately NOT posted (needs an owner-chosen cutover date)`);
   out.push("");
   out.push(r.ok ? "RESULT: PASS — 0 differences" : `RESULT: FAIL — ${r.failures.join("; ")}`);
