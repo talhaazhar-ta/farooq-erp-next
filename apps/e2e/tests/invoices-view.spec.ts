@@ -72,7 +72,7 @@ for (const { status, label, filter } of STATUSES) {
     expect(qtys.map((q) => Number(q.replace("+", "")))).toEqual(d.stockMovements.map((m) => m.quantity));
 
     // actions: enabled exactly as the server says, the reason under a disabled button is the server's own words
-    const verdict = { cancel: d.actions.cancel, "change-shop": d.actions.changeShop, duplicate: d.actions.duplicate };
+    const verdict = { edit: d.actions.edit, cancel: d.actions.cancel, "change-shop": d.actions.changeShop, duplicate: d.actions.duplicate };
     for (const [testId, a] of Object.entries(verdict)) {
       const btn = page.getByTestId(`action-${testId}`);
       if (testId === "change-shop" && status === "DRAFT") {
@@ -86,9 +86,9 @@ for (const { status, label, filter } of STATUSES) {
         await expect(page.getByTestId(`reason-${testId}`)).toHaveText(a.reason!);
       }
     }
-    // nothing on the page offers to edit (the builder is S10)
-    await expect(page.getByRole("button", { name: /^edit/i })).toHaveCount(0);
-    await expect(page.getByRole("link", { name: /^edit/i })).toHaveCount(0);
+    // (S10: Edit joined the verdicts above — enabled exactly as the server says, with its reason when not; Post is a draft's only)
+    if (status === "DRAFT") await expect(page.getByTestId("action-post")).toBeVisible();
+    else await expect(page.getByTestId("action-post")).toHaveCount(0);
   });
 }
 

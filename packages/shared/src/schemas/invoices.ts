@@ -300,6 +300,11 @@ export const productPickQuerySchema = z
     /** The warehouse whose "available" figure sorts in-stock products first. */
     warehouseId: z.preprocess((v) => (v === "" ? undefined : v), uuid.optional()),
     limit: z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().int().min(1).max(100).default(40)),
+    /** (S10) Exact products, comma-separated ids (at most 100): the products already on an invoice, active or not. */
+    ids: z.preprocess(
+      (v) => (v === "" || v === undefined ? undefined : String(v).split(",").map((s) => s.trim()).filter(Boolean)),
+      z.array(uuid).min(1).max(100).optional(),
+    ),
   })
   .strict();
 export type ProductPickQuery = z.infer<typeof productPickQuerySchema>;

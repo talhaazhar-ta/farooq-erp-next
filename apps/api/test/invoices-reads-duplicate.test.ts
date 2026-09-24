@@ -229,6 +229,19 @@ describe("GET /products — the invoice builder's product search", () => {
     expect((await pick(owner, `?q=${tag}&limit=1`))).toHaveLength(1);
   });
 
+  it("`ids` (S10, the builder asking after the products already on an invoice): exactly those, active or not; bad ids are 422", async () => {
+    const tag = `zi${letters()}`;
+    const a = await seedProduct(h, { nameEn: `${tag} Alpha` });
+    const b = await seedProduct(h, { nameEn: `${tag} Beta` });
+    const gone = await seedProduct(h, { nameEn: `${tag} Gone` });
+    await h.db.update(products).set({ active: false }).where(eq(products.id, gone.id));
+    expect((await pick(owner, `?ids=${a.id},${gone.id}`)).map((p) => p.id).sort()).toEqual([a.id, gone.id].sort());
+    expect((await pick(owner, `?ids=${b.id}`)).map((p) => p.id)).toEqual([b.id]);
+    expect((await pick(owner, `?ids=${a.id},${b.id}&q=${tag}%20beta`)).map((p) => p.id)).toEqual([b.id]); // still narrowed by words
+    expect((await h.request(owner, "GET", "/products?ids=not-an-id")).status).toBe(422);
+    expect((await h.request(owner, "GET", `/products?ids=${a.id},`)).status).toBe(200); // a trailing comma is harmless
+  });
+
   it("price hints: the owner's set price and min price, and the last invoiced rate (posted only — a draft or a cancelled invoice is ignored)", async () => {
     const s = await scenario(h, { productOpts: { sellP: 275_000, minSellP: 260_000 } });
     expect((await pick(owner, `?q=${s.product.name}`))[0]).toMatchObject({ sellP: 275_000, minSellP: 260_000, lastRateP: null });

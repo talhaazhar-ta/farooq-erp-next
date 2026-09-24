@@ -16,7 +16,7 @@ vi.mock("@tanstack/react-router", () => ({
   ),
 }));
 
-import { CancelInvoiceDialog, ChangeShopPanel } from "./invoice-dialogs";
+import { CancelInvoiceDialog, ChangeShopPanel, PostDraftDialog } from "./invoice-dialogs";
 import { ToastProvider } from "./ui";
 
 const receipt = { paymentId: IDS.receipt, receiptNumber: "REC-2026-000031", date: "2026-09-02", method: "Cash", reference: null, allocatedP: 400_000, status: "POSTED" as const };
@@ -169,5 +169,45 @@ describe("Change shop", () => {
     await choose(user, "Beta");
     await user.click(screen.getByRole("button", { name: "Move invoice" }));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+});
+
+describe("Post invoice (a saved draft, straight from its page)", () => {
+  const draft = () => invoiceDetail({ status: "DRAFT", number: null, revision: 3, stockApplied: false, stockMovements: [], paidP: 0 });
+
+  it("states what posting does first, then sends ONE PUT built from the draft: mode post, paid 0, the revision as loaded, its line ids, a key", async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const { calls } = mockApi({ [`PUT /invoices/${IDS.invoice}`]: async () => (await gate, { status: 200, body: invoiceDetail() }) });
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    wrap(<PostDraftDialog invoice={draft()} onClose={onClose} />);
+    expect(screen.getByRole("heading", { name: "Post this invoice?" })).toBeInTheDocument();
+    expect(screen.getByText(/given its own invoice number/)).toBeInTheDocument();
+    expect(screen.getByText(/bags leave stock \(30 in all/)).toBeInTheDocument();
+    expect(screen.getByText(/balance goes up by PKR 27,425.00/)).toBeInTheDocument();
+    expect(calls).toHaveLength(0);
+    const confirm = screen.getByTestId("confirm-post");
+    await user.click(confirm);
+    await user.click(confirm); // a second click while it is on its way
+    release();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    const puts = calls.filter((c) => c.method === "PUT");
+    expect(puts).toHaveLength(1);
+    expect(puts[0]!.body).toMatchObject({ mode: "post", paidAmountP: 0, revision: 3, customerId: IDS.shop, lines: [{ id: IDS.line }, { id: IDS.line2 }] });
+    expect((puts[0]!.body as { idempotencyKey: string }).idempotencyKey).toMatch(/^[A-Za-z0-9_-]{8,100}$/);
+  });
+
+  it("a refusal (stock, a missing rate) is shown verbatim and the dialog stays open", async () => {
+    const refusal = "Only 10 bags of Zam Zam Atta 20KG are available in Main Godown. Requested: 20.";
+    mockApi({ [`PUT /invoices/${IDS.invoice}`]: respond(422, { message: refusal, errors: [refusal] }) });
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    wrap(<PostDraftDialog invoice={draft()} onClose={onClose} />);
+    await user.click(screen.getByTestId("confirm-post"));
+    expect(await screen.findByText(refusal)).toBeInTheDocument();
+    expect(screen.getByText("This invoice cannot be posted yet — nothing has been changed")).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByTestId("confirm-post")).toBeEnabled();
   });
 });

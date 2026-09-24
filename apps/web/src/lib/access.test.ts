@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ROLES, type Role } from "@farooq/shared";
 import {
   canCorrect,
+  canCreateInvoice,
   canCorrectInvoice,
   canDiscardDraft,
   canDuplicateInvoice,
@@ -77,5 +78,11 @@ describe("what each role sees and can do (the permission matrix, in the UI)", ()
     for (const role of ["OWNER", "MANAGER", "ACCOUNTANT"] as Role[]) expect(canSeeProfit(role)).toBe(true);
     expect(canSeeProfit("SALES")).toBe(false);
     expect(canSeeProfit("INVENTORY")).toBe(false);
+  });
+
+  it("S10: New invoice (and posting a draft) is for whoever may make a sale: OWNER, MANAGER, SALES — not the accountant, not the warehouse", () => {
+    for (const role of ["OWNER", "MANAGER", "SALES"] as Role[]) expect(canCreateInvoice(role), role).toBe(true);
+    expect(canCreateInvoice("ACCOUNTANT")).toBe(false);
+    expect(canCreateInvoice("INVENTORY")).toBe(false);
   });
 });

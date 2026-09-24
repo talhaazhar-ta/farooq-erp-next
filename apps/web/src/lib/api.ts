@@ -92,8 +92,8 @@ async function getParsed<S extends z.ZodTypeAny>(path: string, schema: S, signal
   return parsed.data;
 }
 
-async function postParsed<S extends z.ZodTypeAny>(path: string, body: unknown, schema: S): Promise<z.infer<S>> {
-  const json = await request<unknown>(path, { method: "POST", body });
+async function postParsed<S extends z.ZodTypeAny>(path: string, body: unknown, schema: S, method: "POST" | "PUT" = "POST"): Promise<z.infer<S>> {
+  const json = await request<unknown>(path, { method, body });
   const parsed = schema.safeParse(json);
   if (!parsed.success) {
     console.error("Unexpected response shape from", path, parsed.error.issues);
@@ -116,5 +116,6 @@ export const api = {
     request<T>(path, { method: "POST", body, ...(opts?.auth ? { auth: true } : {}) }),
   getParsed,
   postParsed,
+  putParsed: <S extends z.ZodTypeAny>(path: string, body: unknown, schema: S) => postParsed(path, body, schema, "PUT"),
   download,
 };

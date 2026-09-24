@@ -63,6 +63,8 @@ export interface Api {
   post(path: string, body: unknown): Promise<{ status: number; body: any }>;
   /** POST that must succeed. */
   postOk<T = any>(path: string, body: unknown): Promise<T>;
+  /** PUT (an invoice edit made "by someone else", behind the screen's back). */
+  put(path: string, body: unknown): Promise<{ status: number; body: any }>;
 }
 
 export async function apiAs(role: Role): Promise<Api> {
@@ -74,7 +76,12 @@ export async function apiAs(role: Role): Promise<Api> {
     const res = await fetch(`${s.apiUrl}${p}`, { method: "POST", headers: { ...headers, "x-csrf-token": csrf, "content-type": "application/json" }, body: JSON.stringify(body) });
     return { status: res.status, body: await res.json().catch(() => null) };
   };
+  const put = async (p: string, body: unknown) => {
+    const res = await fetch(`${s.apiUrl}${p}`, { method: "PUT", headers: { ...headers, "x-csrf-token": csrf, "content-type": "application/json" }, body: JSON.stringify(body) });
+    return { status: res.status, body: await res.json().catch(() => null) };
+  };
   return {
+    put,
     get: async (p) => {
       const res = await fetch(`${s.apiUrl}${p}`, { headers });
       if (!res.ok) throw new Error(`GET ${p} → ${res.status} ${await res.text()}`);
@@ -129,7 +136,8 @@ export async function allInvoices(api: Api, q = ""): Promise<InvoiceListResponse
 /** The first godown and a product with plenty of bags in it (the synthetic products each start with 100,000 in both godowns). */
 export async function stockBasics(api: Api): Promise<{ warehouse: WarehouseItem; product: ProductPickItem; product2: ProductPickItem }> {
   const warehouse = (await api.get<WarehouseItem[]>("/warehouses")).find((w) => w.active)!;
-  const products = await api.get<ProductPickItem[]>(`/products?warehouseId=${warehouse.id}&limit=20`);
+  // the S10 builder products ("Builder …") have few bags on purpose and belong to the builder specs alone
+  const products = (await api.get<ProductPickItem[]>(`/products?warehouseId=${warehouse.id}&limit=40`)).filter((p) => !/^Builder /.test(p.nameEn ?? p.name));
   return { warehouse, product: products[0]!, product2: products[1]! };
 }
 

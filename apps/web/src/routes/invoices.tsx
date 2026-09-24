@@ -4,6 +4,8 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { businessDateOf, formatPaisaPlain, INVOICE_STATUSES, type InvoiceListItem, type InvoiceListResponse } from "@farooq/shared";
 import { RequireInvoicesAccess } from "../components/guard";
 import { Badge, Banner, Button, EmptyState, ErrorLines, inputClass, LabeledSelect, useToast, cn } from "../components/ui";
+import { useAuth } from "../lib/auth";
+import { canCreateInvoice } from "../lib/access";
 import { fmtDate } from "../lib/format";
 import {
   buildInvoiceExportQuery,
@@ -100,6 +102,8 @@ function InvoicesScreen() {
     void navigate({ to: "/invoices", search: {}, replace: true });
   };
 
+  const { user } = useAuth();
+  const mayCreate = user ? canCreateInvoice(user.role) : false;
   const wide = useMediaQuery("(min-width: 768px)");
   const pages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
 
@@ -110,9 +114,16 @@ function InvoicesScreen() {
           <h1 className="text-lg font-semibold text-(--color-text)">Invoices</h1>
           <p className="text-sm text-(--color-text-muted)">Sales invoices: find, read, print and correct them.</p>
         </div>
-        <Button onClick={exportCsv} disabled={exporting || hasInputErrors} aria-label="Export CSV">
-          {exporting ? "Exporting…" : "Export CSV"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={exportCsv} disabled={exporting || hasInputErrors} aria-label="Export CSV">
+            {exporting ? "Exporting…" : "Export CSV"}
+          </Button>
+          {mayCreate ? (
+            <Link to="/invoices/new" className="inline-flex items-center justify-center rounded-md bg-(--color-primary) px-3.5 py-2 text-sm font-medium text-(--color-primary-fg) hover:opacity-90" data-testid="new-invoice">
+              New invoice
+            </Link>
+          ) : null}
+        </div>
       </div>
 
       {data ? <KpiCards kpis={data.kpis} /> : null}

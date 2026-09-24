@@ -2,14 +2,16 @@ import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { InvoiceDetail, PartyLookupItem } from "@farooq/shared";
-import { cancelInvoice, changeInvoiceShop, getBalance, getRegions, keys } from "../lib/queries";
+import { cancelInvoice, changeInvoiceShop, getBalance, getRegions, keys, saveInvoice } from "../lib/queries";
+import { newIdempotencyKey } from "../lib/ids";
+import { postPayloadOf } from "../lib/invoice-form";
 import { fmtMoney } from "../lib/format";
 import { cancelEffect, invoiceTitle, postedReceipts, shopMoveFigures, shopOf } from "../lib/invoice-view";
 import { PartyCombobox } from "./party-combobox";
 import { Banner, Button, Dialog, ErrorLines, Field, inputClass, useToast } from "./ui";
 
 /** After any correction: every screen that shows this invoice, the shops' money or stock must refetch. */
-function useAfterInvoiceChange() {
+export function useAfterInvoiceChange() {
   const qc = useQueryClient();
   return async () => {
     await Promise.all([
@@ -18,6 +20,7 @@ function useAfterInvoiceChange() {
       qc.invalidateQueries({ queryKey: ["balance"] }),
       qc.invalidateQueries({ queryKey: ["outstanding"] }),
       qc.invalidateQueries({ queryKey: ["statement"] }),
+      qc.invalidateQueries({ queryKey: keys.products }),
     ]);
   };
 }
@@ -26,7 +29,7 @@ function useAfterInvoiceChange() {
  * Cancel a posted invoice / discard a draft. States the effect first and REQUIRES a reason (the server does too). When the
  * server refuses because money was received, the receipts are listed here with links to them.
  */
-export function CancelInvoiceDialog({ invoice, onClose }: { invoice: InvoiceDetail; onClose: () => void }) {
+export function CancelInvoiceDialog({ invoice, onClose, onDone }: { invoice: InvoiceDetail; onClose: () => void; onDone?: () => void }) {
   const draft = invoice.status === "DRAFT";
   const [reason, setReason] = useState("");
   const [touched, setTouched] = useState(false);
@@ -40,6 +43,7 @@ export function CancelInvoiceDialog({ invoice, onClose }: { invoice: InvoiceDeta
   const mutation = useMutation({
     mutationFn: () => cancelInvoice(invoice.id, { reason: reason.trim() }),
     onSuccess: async () => {
+      onDone?.(); // e.g. the builder lets the coming navigation through: a discarded draft has nothing left to lose
       await after();
       toast(draft ? `Draft discarded` : `${title} cancelled. Stock has been returned and the balance reversed.`);
       onClose();
@@ -246,6 +250,64 @@ export function ChangeShopPanel({ invoice, onClose }: { invoice: InvoiceDetail; 
           </Button>
         </div>
       </form>
+    </Dialog>
+  );
+}
+
+/**
+ * Post a saved draft straight from its page. States what posting does FIRST (a number is assigned, the bags leave stock, the
+ * shop's balance goes up), then sends ONE `PUT … mode: "post"` built from the draft as loaded (paid 0, the revision as loaded, a
+ * fresh idempotency key). A refusal — the stock message, a missing rate — is shown verbatim and the dialog stays open.
+ */
+export function PostDraftDialog({ invoice, onClose }: { invoice: InvoiceDetail; onClose: () => void }) {
+  const after = useAfterInvoiceChange();
+  const toast = useToast();
+  const busy = useRef(false);
+  const key = useRef(newIdempotencyKey());
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const built = postPayloadOf(invoice, key.current);
+      if (!built.ok) throw new Error(built.errors.join(" "));
+      return saveInvoice(built.payload, invoice.id);
+    },
+    onSuccess: async (posted) => {
+      key.current = newIdempotencyKey();
+      await after();
+      toast(`${posted.number ?? "The invoice"} posted. Stock and the shop’s balance are updated.`);
+      onClose();
+    },
+    onSettled: () => {
+      busy.current = false;
+    },
+  });
+
+  function confirm() {
+    if (busy.current || mutation.isPending) return;
+    busy.current = true;
+    mutation.mutate();
+  }
+
+  return (
+    <Dialog open onClose={onClose} title="Post this invoice?" description={`${fmtMoney(invoice.totalP)} · ${shopOf(invoice)}`}>
+      <div className="space-y-4">
+        <Banner tone="warn" title="What will happen">
+          <ul className="list-disc space-y-1 pl-5">
+            <li>The invoice is given its own invoice number.</li>
+            <li>
+              The bags leave stock ({invoice.totalQuantity} in all, from the godown each line names).
+            </li>
+            <li>The shop’s balance goes up by {fmtMoney(invoice.totalP)}. Nothing is received now — to take money with the sale, open the draft with Edit instead.</li>
+          </ul>
+        </Banner>
+        {mutation.isError ? <ErrorLines error={mutation.error} onRetry={confirm} title="This invoice cannot be posted yet — nothing has been changed" /> : null}
+        <div className="flex justify-end gap-2 border-t border-(--color-border) pt-4">
+          <Button onClick={onClose}>Not yet</Button>
+          <Button variant="primary" onClick={confirm} disabled={mutation.isPending} data-testid="confirm-post">
+            {mutation.isPending ? "Posting…" : "Post invoice"}
+          </Button>
+        </div>
+      </div>
     </Dialog>
   );
 }

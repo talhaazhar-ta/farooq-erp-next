@@ -221,7 +221,7 @@ test("a long invoice (45 lines) runs onto more pages, and the table header repea
   const { page } = await open("OWNER");
   const lima = await findParty(api, "customers", SCENARIO.lima.name);
   const { warehouse } = await stockBasics(api);
-  const products = await api.get<ProductPickItem[]>(`/products?warehouseId=${warehouse.id}&limit=20`);
+  const products = (await api.get<ProductPickItem[]>(`/products?warehouseId=${warehouse.id}&limit=40`)).filter((p) => !/^Builder /.test(p.nameEn ?? p.name)); // (the S10 builder products are few-bag on purpose)
   expect(products.length).toBeGreaterThanOrEqual(14);
   const inv = await api.postOk<{ id: string }>("/invoices", {
     mode: "post",

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { ROLES, type Role } from "@farooq/shared";
+import { roleHasAnyPermission, ROLES, type Role } from "@farooq/shared";
 import { readState } from "../setup/env";
 import { test, expect, apiAs, invoicesList } from "./fixtures";
 
@@ -16,9 +16,9 @@ for (const role of ["OWNER", "MANAGER", "ACCOUNTANT", "SALES"] as Role[]) {
     await expect(page.getByRole("heading", { name: "Invoices", level: 1 })).toBeVisible();
     await expect(page.getByTestId("invoice-row").first()).toBeVisible();
     await expect(page.getByTestId("kpis")).toBeVisible();
-    // there is no "New invoice" / "Edit" yet — the builder is S10
+    // S10: "New invoice" is there for whoever may make a sale (SALES_CREATE) — the accountant reads and corrects, but does not start invoices
+    await expect(page.getByRole("link", { name: /new invoice/i })).toHaveCount(roleHasAnyPermission(role, ["SALES_CREATE"]) ? 1 : 0);
     await expect(page.getByRole("button", { name: /new invoice/i })).toHaveCount(0);
-    await expect(page.getByRole("link", { name: /new invoice/i })).toHaveCount(0);
   });
 }
 

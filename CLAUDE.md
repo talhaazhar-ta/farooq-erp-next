@@ -154,13 +154,13 @@ and signs each role in once (storage states). Specs run one at a time, in file o
   postgres on :55433 and a node on :3100 / :4173 must be stopped by hand before the next run).
 - Screenshots (desktop / phone / dark) and the PDFs the print tests read back are written to `apps/e2e/e2e-artifacts/` (gitignored) by `tests/visual.spec.ts` / `receipt-print.spec.ts` — open them and look.
 - Invoice specs (S9) are `tests/invoices-*.spec.ts`: each money-moving one owns a shop (Kilo / Lima / Mike / November / Oscar), creates its invoices through the API (`postInvoice` in `tests/fixtures.ts`) and reads expected figures back from the API; the print spec reads the PDF Chromium prints with pdf.js (letter-spaced headings extract with gaps — compare with whitespace removed).
+- Builder specs (S10) are `tests/invoices-builder.spec.ts` (+ `builder-helpers.ts`): each money-moving test owns a shop (Papa … Zulu, appended to `SCENARIO`) and the five "Builder …" products of `BUILDER_PRODUCTS` (`setup/dataset.ts`; few bags on purpose — `stockBasics` and the 45-line print test skip them). The importer maps legacy ids to UUIDs, so find a product by NAME (`builderProduct`). The product list keeps the previous answer on screen while a search loads: wait for `aria-busy="false"` before clicking a result (`addProduct` does). A test whose server refusal is the point sets `allowConsoleErrors`.
 - Any `console.error` fails a golden-path test (a test that provokes a refusal sets `allowConsoleErrors`). Sign-in specs spend real login attempts (the API throttles 20 / 15 min / IP), everything else reuses the storage states.
 
 ## Roadmap
 
-See `docs/ROADMAP.md` for the full milestone list. **M1 — Foundation + Payments is complete** (S1–S5).
-Current milestone: **M2 — Invoices** (**S6 invoice lines + stock quantities ✓** → **S7 Invoices service + API ✓** → **S8 search/print/profit server side ✓** →
-**S9 invoice list / view / print / corrections + e2e ✓** → S10 invoice builder + e2e, closes M2). The owner's three M2 decisions (cancel with receipts refused; permissions; net edit of posted invoices) are in `docs/ROADMAP.md` → M2.
+See `docs/ROADMAP.md` for the full milestone list. **M1 — Foundation + Payments is complete** (S1–S5). **M2 — Invoices is complete** (S6 lines + stock ✓ → S7 service + API ✓ → S8 search / print / profit server side ✓ →
+S9 list / view / print / corrections ✓ → **S10 invoice builder + e2e ✓**). Next milestone: **M3 — Purchases** (after a person has walked the M1 + M2 screens — see STATUS "Next step"). The owner's three M2 decisions (cancel with receipts refused; permissions; net edit of posted invoices) are in `docs/ROADMAP.md` → M2.
 
 ## Where to look for more detail
 

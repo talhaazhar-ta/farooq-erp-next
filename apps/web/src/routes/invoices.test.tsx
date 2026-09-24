@@ -159,22 +159,44 @@ describe("the view page: what each role is offered", () => {
     expect(screen.queryByRole("columnheader", { name: "Profit" })).toBeNull();
   });
 
-  it("OWNER sees Cancel invoice and Change shop on a posted invoice; a draft offers Discard, Duplicate and Print only — nothing about editing", async () => {
+  it("OWNER sees Edit, Cancel invoice and Change shop on a posted invoice (no Post — it is posted); a draft offers Edit, Post, Discard, Duplicate and Print", async () => {
+    // S10 changed this test on purpose: S9's said a draft's page says nothing about editing; now Edit and Post are drawn from the server's `actions.edit`
     mockApi(detailRoutes(invoiceDetail()));
     const { unmount } = wrap(<InvoiceDetailPage />);
     expect(await screen.findByTestId("action-cancel")).toHaveTextContent("Cancel invoice");
     expect(screen.getByTestId("action-change-shop")).toBeEnabled();
-    expect(screen.queryByText(/^Edit/)).toBeNull();
+    expect(screen.getByTestId("action-edit")).toHaveTextContent("Edit invoice");
+    expect(screen.getByTestId("action-edit")).toBeEnabled();
+    expect(screen.queryByTestId("action-post")).toBeNull();
     unmount();
 
     mockApi(detailRoutes(invoiceDetail({ status: "DRAFT", number: null, stockApplied: false, stockMovements: [] })));
-    const draft = wrap(<InvoiceDetailPage />);
+    wrap(<InvoiceDetailPage />);
     expect(await screen.findByTestId("action-cancel")).toHaveTextContent("Discard draft");
     expect(screen.queryByTestId("action-change-shop")).toBeNull();
     expect(screen.getByRole("link", { name: "Print" })).toBeInTheDocument();
     expect(screen.getByTestId("action-duplicate")).toBeInTheDocument();
-    expect(draft.container.textContent).not.toMatch(/\bedit\b/i);
+    expect(screen.getByTestId("action-edit")).toHaveTextContent("Edit draft");
+    expect(screen.getByTestId("action-post")).toHaveTextContent("Post invoice");
     expect(screen.getByTestId("invoice-number")).toHaveTextContent("Draft");
+  });
+
+  it("Edit is never hidden: SALES on a posted invoice sees it disabled with the server's reason; ACCOUNTANT on a draft sees Edit disabled and no Post", async () => {
+    role = "SALES";
+    const reason = "You do not have permission to edit a posted invoice, cancel it or change its shop.";
+    mockApi(detailRoutes(invoiceDetail({ actions: { ...invoiceDetail().actions, edit: { allowed: false, reason } } })));
+    const { unmount } = wrap(<InvoiceDetailPage />);
+    expect(await screen.findByTestId("action-edit")).toBeDisabled();
+    expect(screen.getByTestId("reason-edit")).toHaveTextContent(reason);
+    unmount();
+
+    role = "ACCOUNTANT";
+    const why = "You do not have permission to create or post invoices.";
+    mockApi(detailRoutes(invoiceDetail({ status: "DRAFT", number: null, stockApplied: false, stockMovements: [], actions: { ...invoiceDetail().actions, edit: { allowed: false, reason: why } } })));
+    wrap(<InvoiceDetailPage />);
+    expect(await screen.findByTestId("action-edit")).toBeDisabled();
+    expect(screen.getByTestId("reason-edit")).toHaveTextContent(why);
+    expect(screen.queryByTestId("action-post")).toBeNull();
   });
 
   it("SALES may discard a draft but is not even offered Cancel invoice or Change shop on a posted one", async () => {

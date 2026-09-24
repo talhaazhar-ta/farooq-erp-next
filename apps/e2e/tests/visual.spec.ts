@@ -3,6 +3,7 @@ import { test as base } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import type { Role } from "@farooq/shared";
 import { readState } from "../setup/env";
+import { addProduct, chooseShop, fillLine } from "./builder-helpers";
 import { test, expect, apiAs, allPayments, allInvoices, invoiceDetailOf, findParty, expectNoHorizontalScroll, shot, ARTIFACTS_DIR, SCENARIO, type Api } from "./fixtures";
 
 /**
@@ -166,6 +167,77 @@ const SCREENS: Screen[] = [
   { name: "invoice-print-standard", url: () => `/invoices/${inv.paid}/print?template=standard`, prepare: (p) => expect(p.getByTestId("invoice-paper")).toHaveAttribute("data-template", "standard") },
   { name: "invoice-print-draft", url: () => `/invoices/${inv.draft}/print`, prepare: (p) => expect(p.getByTestId("invoice-ribbon")).toBeVisible() },
   { name: "invoice-print-cancelled", url: () => `/invoices/${inv.cancelled}/print?template=standard`, prepare: (p) => expect(p.getByTestId("invoice-ribbon")).toBeVisible() },
+  // ── S10: the invoice builder (nothing is saved here: the screens are only looked at) ──
+  { name: "builder-empty", url: () => "/invoices/new", prepare: (p) => expect(p.getByTestId("no-lines")).toBeVisible() },
+  {
+    name: "builder-filled",
+    url: () => "/invoices/new",
+    prepare: async (p) => {
+      await chooseShop(p, SCENARIO.delta.name);
+      const a = await addProduct(p, "Builder Priced");
+      await fillLine(p, a, "qty", "12");
+      await fillLine(p, a, "discount", "250");
+      const b = await addProduct(p, "Builder BelowCost"); // below its cost: a red hint for the owner
+      await fillLine(p, b, "qty", "7.5");
+      const c = await addProduct(p, "Builder Tight"); // 20 asked, 10 there: "short by" on the line and in the header
+      await fillLine(p, c, "qty", "20");
+      await p.getByTestId("field-freight").fill("350.75");
+      await p.getByTestId("field-paidAmount").fill("5,000");
+      await expect(p.getByTestId("short-count")).toBeVisible();
+    },
+  },
+  {
+    name: "builder-error",
+    url: () => "/invoices/new",
+    prepare: async (p) => {
+      await chooseShop(p, SCENARIO.delta.name);
+      const a = await addProduct(p, "Builder Priced");
+      await fillLine(p, a, "qty", "2.5555");
+      await p.getByTestId("save-post").click();
+      await expect(p.getByTestId("save-errors")).toBeVisible();
+    },
+  },
+  {
+    name: "builder-filled-sales",
+    role: "SALES",
+    url: () => "/invoices/new",
+    prepare: async (p) => {
+      await chooseShop(p, SCENARIO.delta.name);
+      await fillLine(p, await addProduct(p, "Builder BelowCost"), "qty", "4");
+      await expect(p.getByTestId("line-hint")).toHaveCount(0);
+    },
+  },
+  { name: "builder-edit-posted-question", url: () => `/invoices/${inv.movable}/edit`, dialog: true, prepare: (p) => expect(p.getByRole("dialog", { name: "Edit a confirmed invoice?" })).toBeVisible() },
+  {
+    name: "builder-edit-posted",
+    url: () => `/invoices/${inv.partPaid}/edit`,
+    prepare: async (p) => {
+      await p.getByTestId("gate-continue").click();
+      await expect(p.getByTestId("shop-locked")).toBeVisible();
+      await expect(p.getByTestId("line-row").first()).toBeVisible();
+    },
+  },
+  { name: "builder-edit-draft", url: () => `/invoices/${inv.draft}/edit`, prepare: (p) => expect(p.getByTestId("discard")).toHaveText("Discard draft") },
+  {
+    name: "builder-unsaved-question",
+    url: () => "/invoices/new",
+    dialog: true,
+    prepare: async (p) => {
+      await p.getByTestId("field-notes").fill("something typed");
+      await p.getByRole("link", { name: "← All invoices" }).click();
+      await expect(p.getByRole("dialog", { name: "Leave without saving?" })).toBeVisible();
+    },
+  },
+  {
+    name: "invoice-post-dialog",
+    url: () => `/invoices/${inv.draft}`,
+    dialog: true,
+    prepare: async (p) => {
+      await p.getByTestId("action-post").click();
+      await expect(p.getByRole("dialog", { name: "Post this invoice?" })).toBeVisible();
+    },
+  },
+  { name: "builder-not-available", role: "ACCOUNTANT", url: () => "/invoices/new", prepare: (p) => expect(p.getByTestId("not-available")).toBeVisible() },
   { name: "invoices-not-available", role: "INVENTORY", url: () => "/invoices", prepare: (p) => expect(p.getByTestId("not-available")).toBeVisible() },
   { name: "not-available", role: "INVENTORY", url: () => "/payments", prepare: (p) => expect(p.getByTestId("not-available")).toBeVisible() },
   { name: "dashboard", url: () => "/", prepare: (p) => expect(p.getByRole("heading", { level: 1 })).toBeVisible() },

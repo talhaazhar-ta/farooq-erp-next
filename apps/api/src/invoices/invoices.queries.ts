@@ -261,7 +261,8 @@ const likeEscape = (s: string): string => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 export async function pickProducts(db: Executor, query: ProductPickQuery, role: Role): Promise<ProductPickItem[]> {
   const words = (query.q ?? "").toLowerCase().split(/\s+/).filter(Boolean).slice(0, 8);
   const hay = sql`lower(concat_ws(' ', ${products.name}, ${products.nameEn}, ${products.nameUr}, ${products.brand}, ${products.brandEn}, ${products.category}, ${products.sku}, ${products.legacyId}, CASE WHEN ${products.weightKg} IS NOT NULL THEN ${products.weightKg}::text || ' kg' END))`;
-  const conds = [eq(products.active, true), ...words.map((w) => sql`${hay} LIKE ${`%${likeEscape(w)}%`}`)];
+  // `ids` (the builder asking after the products already on an invoice) names exact products, active or not: an old line must keep its stock hint
+  const conds = [query.ids ? inArray(products.id, query.ids) : eq(products.active, true), ...words.map((w) => sql`${hay} LIKE ${`%${likeEscape(w)}%`}`)];
   const rows = await db
     .select()
     .from(products)

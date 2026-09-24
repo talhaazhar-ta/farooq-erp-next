@@ -2,12 +2,14 @@ import { z } from "zod";
 import {
   companyProfileSchema,
   invoiceDetailSchema,
+  productPickItemSchema,
   invoiceListResponseSchema,
   invoicePrintSchema,
   warehouseItemSchema,
   type CancelInvoiceInput,
   type ChangeInvoiceShopInput,
   type DuplicateInvoiceInput,
+  type SaveInvoiceInput,
   outstandingDocumentSchema,
   partyBalanceSchema,
   partyLookupItemSchema,
@@ -44,6 +46,9 @@ export const keys = {
   invoice: (id: string) => ["invoices", "detail", id] as const,
   invoicePrint: (id: string, template: string) => ["invoices", "print", id, template] as const,
   warehouses: ["warehouses"] as const,
+  products: ["products"] as const,
+  productSearch: (q: string, warehouseId: string, limit: number) => ["products", "search", q, warehouseId, limit] as const,
+  productsByIds: (ids: string[]) => ["products", "ids", ...ids] as const,
 };
 
 export type PartyType = "customer" | "supplier";
@@ -101,6 +106,16 @@ export const getWarehouses = () => api.getParsed("/warehouses", z.array(warehous
 export const cancelInvoice = (id: string, body: CancelInvoiceInput) => api.postParsed(`/invoices/${id}/cancel`, body, invoiceDetailSchema);
 export const duplicateInvoice = (id: string, body: DuplicateInvoiceInput) => api.postParsed(`/invoices/${id}/duplicate`, body, invoiceDetailSchema);
 export const changeInvoiceShop = (id: string, body: ChangeInvoiceShopInput) => api.postParsed(`/invoices/${id}/change-shop`, body, invoiceDetailSchema);
+
+/** Save an invoice: POST creates (draft or posted), PUT edits a draft / posts one / edits a posted invoice (the body carries the `revision` as loaded). */
+export const saveInvoice = (body: SaveInvoiceInput, id?: string) =>
+  id ? api.putParsed(`/invoices/${id}`, body, invoiceDetailSchema) : api.postParsed("/invoices", body, invoiceDetailSchema);
+
+/** The builder's product search: words (name, Urdu name, brand, category, SKU, bag size), in-stock-first for a warehouse. */
+export const searchProducts = (q: string, warehouseId: string, limit: number, signal?: AbortSignal) =>
+  api.getParsed(`/products${toQueryString({ ...(q.trim() ? { q: q.trim() } : {}), ...(warehouseId ? { warehouseId } : {}), limit: String(limit) })}`, z.array(productPickItemSchema), signal);
+/** Exactly these products (the ones already on an invoice), active or not. */
+export const getProductsByIds = (ids: string[]) => api.getParsed(`/products${toQueryString({ ids: ids.join(","), limit: "100" })}`, z.array(productPickItemSchema));
 
 /** The invoice CSV: every match of the current filters (no paging), saved with the server's own file name. */
 export async function exportInvoicesCsv(params: Record<string, string>): Promise<string> {

@@ -9,6 +9,7 @@ import { StatementsPage } from "./routes/statements";
 import { InvoicesPage } from "./routes/invoices";
 import { InvoiceDetailPage } from "./routes/invoice-detail";
 import { InvoicePrintPage, templateFromSearch } from "./routes/invoice-print";
+import { InvoiceEditPage, InvoiceNewPage } from "./routes/invoice-builder";
 import { invoiceFiltersFromSearch, invoiceFiltersToSearch } from "./lib/invoice-filters";
 import { filtersFromSearch, filtersToSearch } from "./lib/payment-filters";
 import { statementSearchFrom, statementSearchOut } from "./lib/statement-filters";
@@ -57,6 +58,19 @@ const invoicesRoute = createRoute({
   component: InvoicesPage,
 });
 
+// "/invoices/new" is a fixed path: the router matches it before "/invoices/$id"
+const invoiceNewRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: "/invoices/new",
+  component: InvoiceNewPage,
+});
+
+const invoiceEditRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: "/invoices/$id/edit",
+  component: InvoiceEditPage,
+});
+
 const invoiceDetailRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/invoices/$id",
@@ -79,7 +93,7 @@ const statementsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   signInRoute,
-  shellRoute.addChildren([indexRoute, paymentsRoute, paymentDetailRoute, receiptRoute, invoicesRoute, invoiceDetailRoute, invoicePrintRoute, statementsRoute]),
+  shellRoute.addChildren([indexRoute, paymentsRoute, paymentDetailRoute, receiptRoute, invoicesRoute, invoiceNewRoute, invoiceDetailRoute, invoiceEditRoute, invoicePrintRoute, statementsRoute]),
 ]);
 
 /**

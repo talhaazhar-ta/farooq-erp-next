@@ -122,19 +122,19 @@ test("SALES discards a DRAFT (reason required), but is not offered — and the A
   expect((await invoiceDetailOf(api, posted.id)).status).not.toBe("CANCELLED");
 });
 
-test("Duplicate makes a new DRAFT of the same lines and opens it (no number, no stock, no money)", async ({ open }) => {
+test("Duplicate makes a new DRAFT of the same lines and opens it in the editor (no number, no stock, no money)", async ({ open }) => {
   const { page } = await open("OWNER");
   const lima = await findParty(api, "customers", SCENARIO.lima.name);
   const original = await postInvoice(api, { customerId: lima.id, second: true });
   const balanceBefore = await balanceOf(api, "customers", lima.id);
   await page.goto(`/invoices/${original.id}`);
   await page.getByTestId("action-duplicate").click();
-  await expect(page).toHaveURL(/\/invoices\/[0-9a-f-]{36}$/);
+  // S10 changed this on purpose: the copy opens in the EDITOR (S9 sent it to the draft's view page)
+  await expect(page).toHaveURL(/\/invoices\/[0-9a-f-]{36}\/edit$/);
   await expect(page).not.toHaveURL(new RegExp(original.id));
-  await expect(page.getByTestId("invoice-number")).toHaveText("Draft");
-  await expect(page.getByTestId("draft-banner")).toBeVisible();
+  await expect(page.getByTestId("builder-title")).toHaveText("Edit draft");
   await expect(page.getByTestId("toast").first()).toContainText(`New draft created from ${original.number}`);
-  const copyId = page.url().split("/").pop()!;
+  const copyId = page.url().split("/").at(-2)!;
   const copy = await invoiceDetailOf(api, copyId);
   expect(copy.status).toBe("DRAFT");
   expect(copy.number).toBeNull();
@@ -142,10 +142,14 @@ test("Duplicate makes a new DRAFT of the same lines and opens it (no number, no 
   expect(copy.stockMovements).toHaveLength(0);
   expect(await balanceOf(api, "customers", lima.id)).toBe(balanceBefore); // a draft touches no account
   await expect(page.getByTestId("line-row")).toHaveCount(original.lines.length);
-  // a draft offers Discard, Duplicate and Print — and says nothing about editing
+  // its own page offers Edit, Post, Discard, Duplicate and Print
+  await page.goto(`/invoices/${copyId}`);
+  await expect(page.getByTestId("invoice-number")).toHaveText("Draft");
+  await expect(page.getByTestId("draft-banner")).toBeVisible();
   await expect(page.getByRole("link", { name: "Print" })).toBeVisible();
   await expect(page.getByTestId("action-cancel")).toHaveText("Discard draft");
-  await expect(page.getByText(/\bedit\b/i)).toHaveCount(0);
+  await expect(page.getByTestId("action-edit")).toBeEnabled();
+  await expect(page.getByTestId("action-post")).toBeEnabled();
 });
 
 test("Change shop: starts blank, shows both shops' balances before → after (= the API's), refuses the same shop, moves the invoice and the receipt taken with it", async ({ open }) => {

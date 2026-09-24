@@ -3,10 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { formatPaisaPlain, type InvoiceAction, type InvoiceDetail } from "@farooq/shared";
 import { RequireInvoicesAccess } from "../components/guard";
-import { CancelInvoiceDialog, ChangeShopPanel, ReceiptLinks } from "../components/invoice-dialogs";
+import { CancelInvoiceDialog, ChangeShopPanel, PostDraftDialog, ReceiptLinks } from "../components/invoice-dialogs";
 import { Badge, Banner, Button, ErrorLines, Loading, useToast } from "../components/ui";
 import { useAuth } from "../lib/auth";
-import { canCorrectInvoice, canDiscardDraft } from "../lib/access";
+import { canCorrectInvoice, canCreateInvoice, canDiscardDraft } from "../lib/access";
 import { ApiError } from "../lib/api";
 import { fmtDate, fmtDateTime, fmtMoney } from "../lib/format";
 import { statusLabel, statusTone } from "../lib/invoice-filters";
@@ -39,7 +39,7 @@ function InvoiceDetailScreen() {
   const { user } = useAuth();
   const q = useQuery({ queryKey: keys.invoice(id), queryFn: () => getInvoice(id), retry: (n, err) => !(err instanceof ApiError && err.status === 404) && n < 2 });
   const warehouses = useQuery({ queryKey: keys.warehouses, queryFn: getWarehouses, staleTime: 5 * 60_000 });
-  const [dialog, setDialog] = useState<"cancel" | "shop" | null>(null);
+  const [dialog, setDialog] = useState<"cancel" | "shop" | "post" | null>(null);
   const navigate = useNavigate();
   const toast = useToast();
   const qc = useQueryClient();
@@ -48,8 +48,8 @@ function InvoiceDetailScreen() {
     mutationFn: () => duplicateInvoice(id, { idempotencyKey: newIdempotencyKey() }),
     onSuccess: async (copy) => {
       await qc.invalidateQueries({ queryKey: keys.invoices });
-      toast(`New draft created from ${invoiceTitle(q.data?.number ?? null)}. It takes its own number when it is posted.`);
-      void navigate({ to: "/invoices/$id", params: { id: copy.id } });
+      toast(`New draft created from ${invoiceTitle(q.data?.number ?? null)}. Check it, then post it — it takes its own number then.`);
+      void navigate({ to: "/invoices/$id/edit", params: { id: copy.id } });
     },
   });
 
@@ -274,6 +274,15 @@ function InvoiceDetailScreen() {
       <section aria-label="Actions" className="space-y-3 rounded-xl border border-(--color-border) bg-(--color-surface) p-4">
         <h2 className="text-sm font-semibold">Actions</h2>
         <div className="grid gap-3 sm:grid-cols-3">
+          {/* Edit and Post follow the server's verdict for editing (a disabled button says why, and is never hidden) */}
+          <ActionButton action={inv.actions.edit} testId="edit" onClick={() => void navigate({ to: "/invoices/$id/edit", params: { id: inv.id } })}>
+            {draft ? "Edit draft" : "Edit invoice"}
+          </ActionButton>
+          {draft && role && canCreateInvoice(role) ? (
+            <ActionButton action={inv.actions.edit} testId="post" onClick={() => setDialog("post")}>
+              Post invoice
+            </ActionButton>
+          ) : null}
           <ActionButton action={inv.actions.duplicate} testId="duplicate" onClick={() => duplicate.mutate()} busy={duplicate.isPending}>
             Duplicate
           </ActionButton>
@@ -294,6 +303,7 @@ function InvoiceDetailScreen() {
 
       {dialog === "cancel" ? <CancelInvoiceDialog invoice={inv} onClose={() => setDialog(null)} /> : null}
       {dialog === "shop" ? <ChangeShopPanel invoice={inv} onClose={() => setDialog(null)} /> : null}
+      {dialog === "post" ? <PostDraftDialog invoice={inv} onClose={() => setDialog(null)} /> : null}
     </div>
   );
 }

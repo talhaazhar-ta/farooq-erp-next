@@ -18,6 +18,10 @@ import { buildSyntheticInvoices } from "../../api/test/helpers/synthetic-invoice
  *   Gamma   one unpaid invoice     Rs  8,000, an Urdu shop name  (Urdu names on every screen)
  *   Delta / Echo / Foxtrot / Golf / Hotel / India / Juliet   shops with no invoices        (each test that changes money uses its own shop)
  *   Kilo / Lima / Mike / November / Oscar   the same, for the invoice specs (S9)
+ *   Papa … Zulu (eleven shops)   the same, for the invoice BUILDER specs (S10)
+ *   five builder products (BUILDER_PRODUCTS): one with a set price and a minimum, one carried only by its last invoiced rate
+ *   (the spec posts that invoice), one whose set price is below what it cost, one with no bags in the second godown, one with
+ *   10 bags in each godown (shortage tests)
  */
 export const SCENARIO = {
   alpha: { id: "e2e-cust-alpha", name: "E2E Alpha Store", invoices: [1_000_000, 2_000_000, 3_000_000] },
@@ -36,10 +40,64 @@ export const SCENARIO = {
   mike: { id: "e2e-cust-mike", name: "E2E Mike Shop", invoices: [] },
   november: { id: "e2e-cust-november", name: "E2E November Shop", invoices: [] },
   oscar: { id: "e2e-cust-oscar", name: "E2E Oscar Shop", invoices: [] },
+  // S10: shops the builder specs create invoices for
+  papa: { id: "e2e-cust-papa", name: "E2E Papa Shop", invoices: [] },
+  quebec: { id: "e2e-cust-quebec", name: "E2E Quebec Shop", invoices: [] },
+  romeo: { id: "e2e-cust-romeo", name: "E2E Romeo Shop", invoices: [] },
+  sierra: { id: "e2e-cust-sierra", name: "E2E Sierra Shop", invoices: [] },
+  tango: { id: "e2e-cust-tango", name: "E2E Tango Shop", invoices: [] },
+  uniform: { id: "e2e-cust-uniform", name: "E2E Uniform Shop", invoices: [] },
+  victor: { id: "e2e-cust-victor", name: "E2E Victor Shop", invoices: [] },
+  whiskey: { id: "e2e-cust-whiskey", name: "E2E Whiskey Shop", invoices: [] },
+  xray: { id: "e2e-cust-xray", name: "E2E Xray Shop", invoices: [] },
+  yankee: { id: "e2e-cust-yankee", name: "E2E Yankee Shop", invoices: [] },
+  zulu: { id: "e2e-cust-zulu", name: "E2E Zulu Shop", invoices: [] },
   supplier: { id: "e2e-sup-mills", name: "E2E Supplier Mills", purchases: [5_000_000] },
 } as const;
 
 type Doc = Record<string, any>;
+
+/** The S10 builder products (invented). `bags` = bags in each godown, in order; cost = what they were received at (paisa per bag). */
+export const BUILDER_PRODUCTS = {
+  priced: { id: "bp-priced", en: "Builder Priced Rice 25KG", ur: "قیمت والا چاول", sellP: 200_000, minSellP: 180_000, costP: 150_000, bags: [500, 500] },
+  lastRate: { id: "bp-lastrate", en: "Builder LastRate Flour 10KG", ur: "آخری ریٹ آٹا", sellP: null, minSellP: null, costP: 90_000, bags: [500, 500] },
+  belowCost: { id: "bp-belowcost", en: "Builder BelowCost Sugar 50KG", ur: "کم قیمت چینی", sellP: 50_000, minSellP: 45_000, costP: 90_000, bags: [500, 500] },
+  zero: { id: "bp-zero", en: "Builder ZeroStock Salt 5KG", ur: "خالی نمک", sellP: 100_000, minSellP: null, costP: 60_000, bags: [40, 0] },
+  tight: { id: "bp-tight", en: "Builder Tight Pulses 20KG", ur: "تنگ دالیں", sellP: 100_000, minSellP: null, costP: 60_000, bags: [10, 10] },
+} as const;
+
+function addBuilderProducts(data: Record<string, Doc[]>): void {
+  const template = data.products![0]!;
+  const warehouses = data.warehouses!;
+  const pad = (n: number) => String(n).padStart(6, "0");
+  let n = 0;
+  const running = new Map<string, number>();
+  for (const b of Object.values(BUILDER_PRODUCTS)) {
+    const product: Doc = {
+      ...structuredClone(template),
+      id: b.id, ur: b.ur, en: b.en, name: b.ur, nameEn: b.en, normalizedName: b.en.toLowerCase(), brand: "Builder", brandEn: "Builder", cat: "Builder", category: "Builder", categoryRaw: "Builder",
+      kg: 25, weightKg: 25, sku: `SKU-${b.id}`, sourceCode: b.id, taxPct: 0, buyP: b.costP, sellP: b.sellP, minSellP: b.minSellP, sell: 0, min: 0, buy: 0, extra: 0, extraP: 0, wholesaleP: 0, retailP: 0,
+    };
+    if (b.sellP === null) {
+      // "no price set": the importer reads a null / missing `sellP` and a falsy legacy `sell` as never set
+      delete product.sellP;
+      delete product.minSellP;
+      delete product.buyP;
+    }
+    data.products!.push(product);
+    b.bags.forEach((bags, i) => {
+      if (bags === 0) return;
+      const wh = warehouses[i]!;
+      const key = `${b.id}|${wh.id}|stock`;
+      running.set(key, bags);
+      data.stockMovements!.push({
+        id: `bp-smv-${++n}`, createdAt: `2025-12-30T10:00:${String(n).padStart(2, "0")}.000Z`, date: "2025-12-30", productId: b.id, warehouseId: wh.id, kind: "OPENING_STOCK", qtyDelta: bags, bucket: "stock",
+        balanceAfter: bags, ref: `RCV-2025-${pad(900 + n)}`, refType: "STOCK_RECEIPT", note: "", unitCostP: b.costP, userId: "Fixture",
+      });
+      data.inventory!.push({ id: `${b.id}|${wh.id}`, productId: b.id, warehouseId: wh.id, qty: bags, damagedQty: 0, avgCostP: b.costP, lastCostP: b.costP });
+    });
+  }
+}
 
 /** S8's invoices + S4's payments in one backup (see the header). Every shop's balance is still worked out from the same documents on both sides of the reconciliation. */
 function mergedBase(): Backup {
@@ -100,7 +158,7 @@ export function buildE2eBackup(): Backup {
   const pad = (n: number) => String(n).padStart(6, "0");
   let invNo = 900_000;
 
-  const shops = [SCENARIO.alpha, SCENARIO.beta, SCENARIO.gamma, SCENARIO.delta, SCENARIO.echo, SCENARIO.foxtrot, SCENARIO.golf, SCENARIO.hotel, SCENARIO.india, SCENARIO.juliet, SCENARIO.kilo, SCENARIO.lima, SCENARIO.mike, SCENARIO.november, SCENARIO.oscar];
+  const shops = [SCENARIO.alpha, SCENARIO.beta, SCENARIO.gamma, SCENARIO.delta, SCENARIO.echo, SCENARIO.foxtrot, SCENARIO.golf, SCENARIO.hotel, SCENARIO.india, SCENARIO.juliet, SCENARIO.kilo, SCENARIO.lima, SCENARIO.mike, SCENARIO.november, SCENARIO.oscar, SCENARIO.papa, SCENARIO.quebec, SCENARIO.romeo, SCENARIO.sierra, SCENARIO.tango, SCENARIO.uniform, SCENARIO.victor, SCENARIO.whiskey, SCENARIO.xray, SCENARIO.yankee, SCENARIO.zulu];
   shops.forEach((s, i) => {
     data.customers!.push({
       ...customerTemplate,
@@ -166,6 +224,8 @@ export function buildE2eBackup(): Backup {
       });
     });
   });
+
+  addBuilderProducts(data);
 
   data.suppliers!.push({ ...supplierTemplate, id: SCENARIO.supplier.id, legacyCode: "E-S01", co: SCENARIO.supplier.name, cp: "Mr Mills", ph: "0300-7770001", lo: "Peshawar", active: true });
   SCENARIO.supplier.purchases.forEach((grandTotal, k) => {

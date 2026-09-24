@@ -15,6 +15,13 @@ export const canReadInvoices = (role: Role): boolean => roleHasAnyPermission(rol
 export const canDiscardDraft = (role: Role): boolean => roleHasAnyPermission(role, ["SALES_CREATE", "TRANSACTION_CORRECT"]);
 export const canCorrectInvoice = (role: Role): boolean => roleHasAnyPermission(role, ["TRANSACTION_CORRECT"]);
 export const canDuplicateInvoice = (role: Role): boolean => roleHasAnyPermission(role, ["SALES_CREATE"]);
+/** "New invoice", and posting a draft: whoever may make a sale. */
+export const canCreateInvoice = (role: Role): boolean => roleHasAnyPermission(role, ["SALES_CREATE"]);
+/**
+ * Whether Edit is OFFERED at all for an invoice in this state (the server's `actions.edit` says whether it is allowed now, and why not):
+ * a draft is edited by whoever may make a sale, a posted invoice by the corrector.
+ */
+export const canOfferEdit = (role: Role, draft: boolean): boolean => (draft ? canCreateInvoice(role) : canCorrectInvoice(role));
 export const canSeeProfit = (role: Role): boolean => roleHasAnyPermission(role, ["PROFIT_VIEW"]);
 
 export const notAvailableTitle = (role: Role): string => `Not available for the ${ROLE_LABELS[role]} role`;

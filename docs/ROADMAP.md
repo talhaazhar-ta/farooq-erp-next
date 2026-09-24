@@ -18,7 +18,7 @@ Payments module (money in/out, the most rule-heavy legacy area) end to end.
 | **S4: search v2, statements, receipt model, company profile (server + shared)** | server-side payment search (port of module 38) + CSV, statement endpoints on the journal, receipt model, snapshots, `business` import, shared fold/date-parse/money/words helpers | search parity vs a JS reference; statements equal `LegacyLedger`; reconciliation still 0 differences |
 | **S5: Payments UI + statements screen + e2e** | list/filters, the 5 actions, receipt print, statement screen, Playwright e2e (split from the original S4 — too big for one session) | e2e green; screenshots reviewed; "not seen by a person" list in STATUS; M1 complete |
 
-## M2 — Invoices (current — planned 2026-09-24)
+## M2 — Invoices (**complete — S6–S10, 2026-09-24**; ported and tested, not yet used by staff)
 
 Sales invoices end to end: lines, stock quantities, posting, payment at the time of sale, edit/cancel/change shop, search, print, profit,
 screens. **Stock quantities (movements + levels) are pulled forward from M4** — an invoice cannot be correct without them; M4 keeps stock
@@ -36,8 +36,8 @@ documents, stock value, average-cost maintenance and the COGS journal. Not used 
 | **S6: invoice lines + stock quantities (data, import)** | migration (invoice lines, full header, `stock_movements`, `stock_levels`, product catalogue/prices), shared `invoiceTotals` (port of `Calc`), invoice posting builder in `ledger.ts`, importer + reconciliation of totals and stock | fixture + real backups: 0 balance / invoice-total / stock differences |
 | **S7: Invoices service + API ✓** | draft (many), post (number, stock, cost snapshot, payment at sale, journal), edit posted (net), cancel, duplicate, change shop, verbatim validation, permissions, concurrency, ledger bridge | rule tests + 403s + bridge green; reconciliation 0 |
 | **S8: search, print model, profit, statement detail (server) ✓** | port of module 33 + CSV, printed invoice model (classic + standard from one model), per-invoice profit (`PROFIT_VIEW`), statement description/Qty from module 24; SALES may discard a draft | search parity vs JS reference on three datasets; print/profit tests; reconciliation 0 |
-| **S9: invoice list, view, print, corrections + e2e** | list/search/cards/CSV, view page, print (classic + standard, A4), discard / cancel / duplicate / change shop, profit block, statement Qty + Receive-panel detail; Playwright; screenshots reviewed | e2e green; screenshots reviewed; reconciliation 0 |
-| **S10: invoice builder + e2e — closes M2** | new / edit / post, live totals, stock and price hints, payment at sale, edit posted (net, stale revision), unsaved-changes guard, phone layout; Playwright; M2 summary | e2e green; "not seen by a person" list; M2 complete |
+| **S9: invoice list, view, print, corrections + e2e ✓** | list/search/cards/CSV, view page, print (classic + standard, A4), discard / cancel / duplicate / change shop, profit block, statement Qty + Receive-panel detail; Playwright; screenshots reviewed | e2e green; screenshots reviewed; reconciliation 0 |
+| **S10: invoice builder + e2e — closes M2 ✓** | new / edit / post, live totals, stock and price hints, payment at sale, edit posted (net, stale revision), unsaved-changes guard, phone layout; Playwright; M2 summary | e2e green; "not seen by a person" list; M2 complete |
 
 ## After M2 (not yet broken into sessions)
 
