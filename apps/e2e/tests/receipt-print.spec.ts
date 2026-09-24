@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import type { Page } from "@playwright/test";
 import type { Receipt } from "@farooq/shared";
-import { test, expect, apiAs, allPayments, findParty, expectNoHorizontalScroll, ARTIFACTS_DIR, shot, SCENARIO, type Api } from "./fixtures";
+import { test, expect, apiAs, allPayments, findParty, postInvoice, expectNoHorizontalScroll, ARTIFACTS_DIR, shot, SCENARIO, type Api } from "./fixtures";
 import path from "node:path";
 
 let api: Api;
@@ -12,17 +12,20 @@ test.beforeAll(async () => {
   mkdirSync(ARTIFACTS_DIR, { recursive: true });
 });
 
-async function printedPdf(page: Page, name: string): Promise<{ pages: number; text: string }> {
+async function printedPdf(page: Page, name: string): Promise<{ pages: number; text: string; perPage: string[] }> {
   await page.emulateMedia({ media: "print" });
   const buffer = await page.pdf({ preferCSSPageSize: true, printBackground: true });
   writeFileSync(path.join(ARTIFACTS_DIR, `${name}.pdf`), buffer);
   const doc = await pdfjs.getDocument({ data: new Uint8Array(buffer), useSystemFonts: false }).promise;
   let text = "";
+  const perPage: string[] = [];
   for (let i = 1; i <= doc.numPages; i++) {
     const content = await (await doc.getPage(i)).getTextContent();
-    text += content.items.map((it) => ("str" in it ? it.str : "")).join(" ") + "\n";
+    const t = content.items.map((it) => ("str" in it ? it.str : "")).join(" ") + "\n";
+    perPage.push(t);
+    text += t;
   }
-  return { pages: doc.numPages, text };
+  return { pages: doc.numPages, text, perPage };
 }
 
 const collapse = (s: string) => s.replace(/\s+/g, " ");
@@ -126,25 +129,31 @@ test("every voucher on file prints on one page (the fullest one, and the Urdu-na
   }
 });
 
-test("the statement prints with its table header, on paper colours, without the filter bar", async ({ open }) => {
+test("the statement prints with its table header, on paper colours, without the filter bar — and a long one repeats the header on every page", async ({ open }) => {
   const { page } = await open("OWNER", { theme: "dark" });
-  const busiest = (await api.get<{ id: string; name: string }[]>("/customers?limit=100")).slice(0, 40);
-  // pick the shop with the most rows so the statement is long
-  let best = { id: busiest[0]!.id, rows: -1 };
-  for (const c of busiest) {
-    const s = await api.get<{ rows: unknown[] }>(`/customers/${c.id}/statement`);
-    if (s.rows.length > best.rows) best = { id: c.id, rows: s.rows.length };
-  }
-  await page.goto(`/statements?type=customer&partyId=${best.id}`);
+  // a shop with a long statement (about 50 rows), so the table certainly runs over more than one printed page
+  const oscar = await findParty(api, "customers", SCENARIO.oscar.name);
+  for (let i = 0; i < 50; i++) await postInvoice(api, { customerId: oscar.id, qty: 1 + (i % 5), date: `2026-05-${10 + (i % 15)}` }); // dated inside the window the statements spec looks at
+  const st = await api.get<{ rows: { ref: string }[] }>(`/customers/${oscar.id}/statement`);
+  expect(st.rows.length).toBeGreaterThanOrEqual(50);
+  await page.goto(`/statements?type=customer&partyId=${oscar.id}`);
   await expect(page.getByTestId("statement")).toBeVisible();
-  const { pages, text } = await printedPdf(page, "statement");
-  expect(pages).toBeGreaterThanOrEqual(1);
+  const { pages, text, perPage } = await printedPdf(page, "statement");
+  expect(pages).toBeGreaterThanOrEqual(2);
   const flat = collapse(text);
   expect(flat).toContain("Statement of account");
   expect(flat).toContain("Closing balance");
   expect(flat).not.toContain("Sign out");
   expect(flat).not.toContain("Account statements"); // the screen heading and the filter bar are not on the paper
-  // the header row is repeated on every printed page
-  if (pages > 1) expect((flat.match(/Description/g) ?? []).length).toBeGreaterThanOrEqual(pages);
+  // the header row (with the new Qty column) is repeated on every printed page that carries table rows
+  let withRows = 0;
+  perPage.forEach((t) => {
+    if (!st.rows.some((r) => t.includes(r.ref))) return;
+    withRows++;
+    const squeezed = t.replace(/\s+/g, "");
+    expect(squeezed).toContain("Description");
+    expect(squeezed).toContain("Qty");
+  });
+  expect(withRows).toBeGreaterThanOrEqual(2);
   expect(await page.getByTestId("statement-table").locator("thead").evaluate((el) => getComputedStyle(el).display)).toBe("table-header-group");
 });

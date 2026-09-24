@@ -205,12 +205,12 @@ function StatementPaper({ s, kind, company }: { s: Statement; kind: PartyKind; c
         </p>
 
         <div className="mt-2 hidden overflow-x-auto sm:block print:block">
-          <table className="text-sm" data-testid="statement-table">
+          <table className="text-sm print:text-xs" data-testid="statement-table">
             <thead>
               <tr>
-                <th className="text-xs">Date</th>
-                <th className="text-xs">Ref</th>
-                <th className="text-xs">Description</th>
+                <th className="whitespace-nowrap text-xs">Date</th>
+                <th className="whitespace-nowrap text-xs">Ref</th>
+                <th className="whitespace-nowrap text-xs">Description</th>
                 <th className="num text-xs">Qty</th>
                 <th className="num text-xs">Debit</th>
                 <th className="num text-xs">Credit</th>
@@ -228,7 +228,7 @@ function StatementPaper({ s, kind, company }: { s: Statement; kind: PartyKind; c
                 s.rows.map((r, i) => (
                   <tr key={`${i}:${r.source.id}`} data-testid="statement-row">
                     <td className="whitespace-nowrap">{fmtDate(r.date)}</td>
-                    <td className="font-mono text-xs">{r.ref}</td>
+                    <td className="whitespace-nowrap font-mono text-xs">{r.ref}</td>
                     <td dir="auto" data-testid="statement-description">{r.detail ?? r.description}</td>
                     <td className="num" data-testid="statement-qty">{r.qtyLabel}</td>
                     <td className="num">{r.debitP ? formatPaisaPlain(r.debitP) : ""}</td>
