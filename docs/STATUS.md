@@ -91,10 +91,11 @@ Every screen (now including the purchase list, view and print). In particular a 
 
 ## Next step
 
-1. **A person walks the M1 + M2 screens — and now the M3 purchase list / view / print — on a real machine and a real phone, and prints one receipt, one invoice and one purchase** (compare the classic invoice with the shop's paper sheet). The user waived this for S13 only; ask again before S14 (the builder is where staff will type).
-2. **S14 — purchase builder, closes M3** (`docs/sessions/S14.md`, draft: read "Corrections after S13" first — `actions.changeSupplier` exists; the view page's Edit button is waiting for the form; the e2e specs own their suppliers / products). The hub finalises S14.
-3. M3 decisions to know: `received_qty_milli` is not capped at ordered; the supplier-return lock reads `returns.legacy_doc` + `purchase_items.returned_qty_milli` until M5; the e2e dataset now has a lined purchase, a cancelled one and a `PUR` counter.
-4. Old-ERP changes: none since 2026-09-23 (old repo checked 2026-09-25: last commit `218db75`). The newest nightly is still `data/business-20260924-210002-v710-449d.json` (S13 search parity ran on it: 0 differences).
+1. **S14 — parity catch-up** (`docs/sessions/S14.md`, **Final** 2026-09-25; server / importer only, not blocked): the live ERP changed after S13 — sale cost now includes the product's extra cost per bag (`c78659b`), Add-stock receipts are editable with a new movement kind `RECEIPT_EDIT_OUT` (`b2b0778`), and **the live test data was wiped on 2026-09-25** (transactions gone, master data kept), so the real-data proofs must be pinned to the pre-wipe `v692` + `v710` instead of "the two newest".
+2. **A person walks the M1 + M2 + M3 screens on a real machine and a real phone, and prints one receipt, one invoice and one purchase.** Waived for S13 only; the user decided (2026-09-25) it is **required before S15**.
+3. **S15 — purchase builder, closes M3** (`docs/sessions/S15.md`, draft; was S14 until 2026-09-25): read "Corrections after S13" first. The hub finalises it after S14 and the walkthrough.
+4. M3 decisions to know: `received_qty_milli` is not capped at ordered; the supplier-return lock reads `returns.legacy_doc` + `purchase_items.returned_qty_milli` until M5; the e2e dataset has a lined purchase, a cancelled one and a `PUR` counter.
+5. Old-ERP changes: `b2b0778`, `c78659b`, `bfa4b25` (2026-09-25, all in the PARITY change log; `bfa4b25` does not apply here). Checked by the hub 2026-09-25 23:50.
 
 ## CI
 
