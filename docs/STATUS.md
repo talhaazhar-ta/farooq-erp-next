@@ -90,7 +90,7 @@ Every screen. In particular a real phone (only a 390 px emulated viewport); a **
 ## Next step
 
 1. **A person walks the M1 + M2 screens on a real machine and a real phone, and prints one receipt and one invoice** (compare the classic invoice with the shop's paper sheet). This blocks **S13 / S14** (the M3 screens).
-2. **S13 — purchase list, view, print** (`docs/sessions/S13.md`, still a draft — read "Corrections after S12" first: the detail endpoint and last-rates already exist; the list / search / CSV / print model, a migration `0009` for the search columns, `actions.changeSupplier` on the detail, and lines for the e2e dataset are S13's). S14 (builder) follows; its "Corrections after S12" says what the API takes.
+2. **S13 — purchase list, view, print** (`docs/sessions/S13.md`, **Final** 2026-09-25 — read "Planner decisions after S12" first: it starts by settling S12's unexplained M34 mutation result; then "Corrections after S12": the detail endpoint and last-rates already exist; the list / search / CSV / print model, a migration `0009` for the search columns, `actions.changeSupplier` on the detail, and lines for the e2e dataset are S13's). S14 (builder) follows; its "Corrections after S12" says what the API takes.
 3. M3 plan: `docs/ROADMAP.md` → M3. Decisions to know: the e2e dataset's purchase is still header-only; `received_qty_milli` is not capped at ordered; the supplier-return lock reads `returns.legacy_doc` until M5.
 4. Old-ERP changes: none since 2026-09-24 (checked 2026-09-25). The newest nightly is `data/business-20260924-210002-v710-449d.json` (first real landed cost; S12 saves every purchase in it back unchanged with 0 differences).
 
