@@ -84,6 +84,13 @@ export const products = pgTable("products", {
   taxPct: doublePrecision("tax_pct"),
   /** Stock alert level in units (bags). */
   reorder: doublePrecision("reorder"),
+  /**
+   * (S13) The product's CURRENT folded text as the legacy Purchases toolbar searched it (`pTxt`: ur, en, brandEn, cat, sku, id, kg,
+   * sourceFolio, normalizedName, nameEn) — plus `category` (the imported `category ?? cat`). Generated: never written by the app.
+   */
+  searchText: text("search_text").generatedAlwaysAs(
+    sql`COALESCE(search_join(name_ur, name_en, brand_en, category, legacy_doc->>'cat', sku, legacy_id, legacy_doc->>'kg'), '') || chr(1) || COALESCE(search_join(legacy_doc->>'sourceFolio', legacy_doc->>'normalizedName', legacy_doc->>'nameEn'), '')`,
+  ),
 });
 
 export const suppliers = pgTable("suppliers", {
@@ -562,6 +569,24 @@ export const purchases = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     /** The old client's offline-sync operation id, verbatim; the new API keeps its own idempotency in `request_keys`. */
     clientOpId: text("client_op_id"),
+
+    /* ── S13: the folded text of the purchase's own searchable fields (generated, like the invoices' S8 columns). What follows
+       other tables stays a query: the supplier's CURRENT text (`suppliers.search_text`), the lines (`purchase_items.search_text`)
+       and the products' current text (`products.search_text`). ── */
+    /** Purchase number and its compact form, the supplier's bill number and its compact form, the delivery reference. */
+    searchNumbers: text("search_numbers").generatedAlwaysAs(
+      sql`search_join(purchase_number, search_compact(purchase_number), supplier_invoice_no, search_compact(supplier_invoice_no), delivery_ref)`,
+    ),
+    /** The supplier as printed on the bill. */
+    searchSupplier: text("search_supplier").generatedAlwaysAs(sql`fold_search(supplier_name_snapshot)`),
+    /** Every form the grand total can be typed in. */
+    searchAmount: text("search_amount").generatedAlwaysAs(sql`search_amount_text(total_p)`),
+    /** Every form the purchase date can be typed in. */
+    searchDate: text("search_date").generatedAlwaysAs(sql`search_date_text(date)`),
+    /** Vehicle (and its compact form), driver, the header godown as printed, notes, description. */
+    searchOther: text("search_other").generatedAlwaysAs(
+      sql`search_join(vehicle_no, search_compact(vehicle_no), driver, warehouse_snapshot, notes, description)`,
+    ),
   },
   (t) => [
     index("purchases_purchase_number_idx").on(t.purchaseNumber),
@@ -626,6 +651,10 @@ export const purchaseItems = pgTable(
     batchNo: text("batch_no"),
     notes: text("notes"),
     legacyDoc: legacyDoc(),
+    /** (S13) The folded line as printed — English name, Urdu name, brand, package — for the purchase search. Generated. */
+    searchText: text("search_text").generatedAlwaysAs(
+      sql`search_join(description_en_snapshot, description_snapshot, brand_snapshot, package_snapshot)`,
+    ),
   },
   (t) => [
     index("purchase_items_purchase_idx").on(t.purchaseId, t.sortOrder),

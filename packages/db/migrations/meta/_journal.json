@@ -64,6 +64,13 @@
       "when": 1790306728149,
       "tag": "0008_s11_purchase_lines",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790328324781,
+      "tag": "0009_s13_purchase_search",
+      "breakpoints": true
     }
   ]
 }

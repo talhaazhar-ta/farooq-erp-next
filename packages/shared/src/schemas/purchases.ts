@@ -221,7 +221,15 @@ export const purchaseDetailSchema = z.object({
   payments: z.array(purchasePaymentSchema),
   stockMovements: z.array(purchaseStockMovementSchema),
   /** What this role may do now, and why not (the server's own wording — show it). */
-  actions: z.object({ edit: action }),
+  actions: z.object({
+    edit: action,
+    /** (S13) Whether the supplier on this purchase may be swapped in an edit, and why not (a voucher or a supplier return is attached — the legacy sentence). */
+    changeSupplier: action,
+  }),
+  /** (S13) The supplier's name now (the bill keeps what it printed in `supplierName`). */
+  supplierCurrentName: z.string().nullable(),
+  /** (S13) The supplier's whole balance now (positive = we owe them), from the journal; null without a supplier. */
+  supplierBalanceP: z.number().int().nullable(),
   /**
    * PROFIT_VIEW only — the key does not exist for anyone else: the cost basis in force and, per product × godown this purchase
    * touches, the average and last cost the stock row carries now.

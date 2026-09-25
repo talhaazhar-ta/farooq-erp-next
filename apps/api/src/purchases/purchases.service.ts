@@ -14,7 +14,6 @@ import {
   readProfitCostBasis,
   replaceEntryLines,
   requestKeys,
-  returns,
   suppliers,
   warehouses,
   PURCHASE_SOURCE,
@@ -40,8 +39,8 @@ import { nextNumber } from "../payments/numbering.js";
 import { writePayout } from "../payments/payout-core.js";
 import { blankToNull, cleanText, type Actor } from "../payments/receipt-core.js";
 import { recomputeAverages, type SavedLineUnit } from "./cost.js";
-import { canEditPurchases, loadPurchaseDetail, paidOn, vouchersOn } from "./purchases.queries.js";
-import { editRefusals, netStockChange, supplierLockedByPayments, supplierLockedByReturns, type NewLineFacts, type OldLineFacts } from "./rules.js";
+import { canEditPurchases, loadPurchaseDetail, paidOn, supplierLockReason, vouchersOn } from "./purchases.queries.js";
+import { editRefusals, netStockChange, type NewLineFacts, type OldLineFacts } from "./rules.js";
 import { validatePurchase, type PurchaseLineForValidation } from "./validate.js";
 
 export interface PurchaseWriteResult {
@@ -118,22 +117,6 @@ export class PurchasesService {
     const unique = [...new Set(ids.filter((x): x is string => !!x))];
     if (unique.length === 0) return;
     await tx.select({ id: suppliers.id }).from(suppliers).where(inArray(suppliers.id, unique)).orderBy(asc(suppliers.id)).for("no key update");
-  }
-
-  /** Why the supplier on this purchase may not be swapped, or null (legacy `supplierLockReason`): the vouchers and returns written against it belong to that supplier. */
-  private async supplierLockReason(tx: Tx, pu: PurchaseRow, oldItems: readonly ItemRow[]): Promise<string | null> {
-    const pays = (await vouchersOn(tx, pu.id)).filter((v) => v.status !== "REVERSED");
-    if (pays.length) return supplierLockedByPayments(pays.map((p) => p.receiptNumber));
-    // supplier returns are M5's: they carry the purchase in their legacy document until M5 gives them a column of their own
-    const rets = pu.legacyId
-      ? await tx
-          .select({ number: returns.returnNumber })
-          .from(returns)
-          .where(and(eq(returns.kind, "SUPPLIER"), sql`${returns.status} <> 'CANCELLED'`, sql`${returns.legacyDoc}->>'purchaseId' = ${pu.legacyId}`))
-      : [];
-    const numbers = rets.map((r) => r.number ?? "(no number)");
-    if (!numbers.length && oldItems.some((i) => i.returnedQtyMilli > 0)) numbers.push("(no number)");
-    return numbers.length ? supplierLockedByReturns(numbers) : null;
   }
 
   private async saveInTx(tx: Tx, actor: Actor, today: string, input: SavePurchaseInput, id: string | null): Promise<{ id: string }> {
@@ -233,7 +216,7 @@ export class PurchasesService {
         ...editRefusals({
           oldLines: oldFacts,
           newLines: newFacts,
-          supplierLockReason: input.supplierId !== existing.supplierId ? await this.supplierLockReason(tx, existing, oldItems) : null,
+          supplierLockReason: input.supplierId !== existing.supplierId ? await supplierLockReason(tx, existing, oldItems) : null,
           paidNowP: alreadyPaid,
           voucherNumbers: vouchers.map((x) => x.receiptNumber),
           newPaidP: paidP,

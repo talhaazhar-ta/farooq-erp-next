@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { payments, paymentAllocations, purchaseItems, purchases, readProfitCostBasis, stockLevels, stockMovements, suppliers, warehouses, type Executor } from "@farooq/db";
+import { payments, paymentAllocations, purchaseItems, purchases, readProfitCostBasis, returns, stockLevels, stockMovements, suppliers, warehouses, type Executor } from "@farooq/db";
 import {
   milliToQty,
   paymentStatusOf,
@@ -10,6 +10,8 @@ import {
   type PurchaseRate,
   type Role,
 } from "@farooq/shared";
+import { supplierBalance } from "../payments/payments.queries.js";
+import { supplierLockedByPayments, supplierLockedByReturns } from "./rules.js";
 
 /** Read side of purchases. Every function takes an `Executor` (the pool or an open transaction). */
 
@@ -67,6 +69,37 @@ export function editAction(pu: Pick<PurchaseRow, "status">, role: Role): Purchas
   return allowed;
 }
 
+/**
+ * Why the supplier on this purchase may not be swapped, or null (legacy `supplierLockReason`): the vouchers and returns written against
+ * it belong to that supplier. Used by the save (inside its transaction) and by the detail's `actions.changeSupplier`.
+ */
+export async function supplierLockReason(
+  db: Executor,
+  pu: Pick<PurchaseRow, "id" | "legacyId">,
+  items: readonly { returnedQtyMilli: number }[],
+): Promise<string | null> {
+  const pays = (await vouchersOn(db, pu.id)).filter((v) => v.status !== "REVERSED");
+  if (pays.length) return supplierLockedByPayments(pays.map((p) => p.receiptNumber));
+  // supplier returns are M5's: they carry the purchase in their legacy document until M5 gives them a column of their own
+  const rets = pu.legacyId
+    ? await db
+        .select({ number: returns.returnNumber })
+        .from(returns)
+        .where(and(eq(returns.kind, "SUPPLIER"), sql`${returns.status} <> 'CANCELLED'`, sql`${returns.legacyDoc}->>'purchaseId' = ${pu.legacyId}`))
+    : [];
+  const numbers = rets.map((r) => r.number ?? "(no number)");
+  if (!numbers.length && items.some((i) => i.returnedQtyMilli > 0)) numbers.push("(no number)");
+  return numbers.length ? supplierLockedByReturns(numbers) : null;
+}
+
+/** (S13) Whether an edit may put this purchase on another supplier: the edit rules first, then the lock. */
+export async function changeSupplierAction(db: Executor, pu: PurchaseRow, items: readonly { returnedQtyMilli: number }[], role: Role): Promise<PurchaseAction> {
+  const edit = editAction(pu, role);
+  if (!edit.allowed) return edit;
+  const lock = await supplierLockReason(db, pu, items);
+  return lock ? refused(lock) : allowed;
+}
+
 /** The purchase with its lines, vouchers, stock movements and what `role` may do. Null when there is no such purchase. */
 export async function loadPurchaseDetail(db: Executor, id: string, role: Role): Promise<PurchaseDetail | null> {
   const [pu] = await db.select().from(purchases).where(eq(purchases.id, id)).limit(1);
@@ -77,6 +110,7 @@ export async function loadPurchaseDetail(db: Executor, id: string, role: Role): 
   const whs = await db.select({ id: warehouses.id, name: warehouses.name }).from(warehouses);
   const whName = new Map(whs.map((w) => [w.id, w.name]));
   const supplierRow = pu.supplierId ? (await db.select({ name: suppliers.companyName }).from(suppliers).where(eq(suppliers.id, pu.supplierId)).limit(1))[0] : undefined;
+  const supplierBalanceP = pu.supplierId ? await supplierBalance(db, pu.supplierId) : null;
 
   const movements = await db
     .select()
@@ -178,7 +212,9 @@ export async function loadPurchaseDetail(db: Executor, id: string, role: Role): 
       note: m.note,
       ...(canSeeCost ? { unitCostP: m.unitCostP } : {}),
     })),
-    actions: { edit: editAction(pu, role) },
+    actions: { edit: editAction(pu, role), changeSupplier: await changeSupplierAction(db, pu, items, role) },
+    supplierCurrentName: supplierRow?.name ?? null,
+    supplierBalanceP,
     ...(costs ? { costs } : {}),
   };
 }

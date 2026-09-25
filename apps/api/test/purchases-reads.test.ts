@@ -42,7 +42,10 @@ describe("GET /purchases/:id", () => {
     expect(d.payments).toHaveLength(1);
     expect(d.stockMovements).toHaveLength(1);
     expect(d.stockMovements[0]).toMatchObject({ kind: "PURCHASE_IN", quantity: 10, bucket: "stock", productId: p.id, warehouseId: s.wh.id });
-    expect(d.actions).toEqual({ edit: { allowed: true, reason: null } });
+    // S13 added changeSupplier: this purchase was paid with a voucher, so its supplier is locked (the legacy sentence)
+    expect(d.actions.edit).toEqual({ allowed: true, reason: null });
+    expect(d.actions.changeSupplier.allowed).toBe(false);
+    expect(d.actions.changeSupplier.reason).toMatch(/^Money has already been paid against this purchase \(PV-/);
   });
 
   it("PROFIT_VIEW roles see the cost figures and the stock row's averages", async () => {
