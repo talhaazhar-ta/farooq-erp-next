@@ -11,7 +11,6 @@ import {
   postJournalEntry,
   replaceEntryLines,
   reversedLines,
-  suppliers,
   PAYMENT_REVERSAL_SOURCE,
   PAYMENT_SOURCE,
   type Db,
@@ -30,10 +29,11 @@ import {
 import { DB } from "../db/db.module.js";
 import { CLOCK, type Clock } from "./clock.js";
 import { BusinessRuleError, NotFoundError } from "./errors.js";
-import { lockInvoices, lockPurchases, purchaseOutstanding, refreshInvoiceStatuses } from "./outstanding.js";
+import { lockInvoices, refreshInvoiceStatuses } from "./outstanding.js";
+import { writePayout } from "./payout-core.js";
 import { loadPaymentDetail } from "./payments.queries.js";
 import { EDIT_AMOUNT_MESSAGES, editAmountRefusal, REVERSE_MESSAGES } from "./rules.js";
-import { blankToNull, cleanText, insertVoucher, loadShop, rupees, writeReceipt, type Actor, type Allocation } from "./receipt-core.js";
+import { blankToNull, insertVoucher, loadShop, writeReceipt, type Actor } from "./receipt-core.js";
 
 export type { Actor };
 
@@ -68,34 +68,7 @@ export class PaymentsService {
   /* ── pay: money out to a supplier ──────────────────────────────────── */
 
   async pay(input: PayPaymentInput, actor: Actor): Promise<WriteResult> {
-    return this.create(input.idempotencyKey, actor, async (tx, today) => {
-      const [sup] = await tx.select({ id: suppliers.id, name: suppliers.companyName, doc: suppliers.legacyDoc }).from(suppliers).where(eq(suppliers.id, input.supplierId)).limit(1);
-      if (!sup) throw new BusinessRuleError([PAYMENT_MESSAGES.chooseSupplier]);
-
-      const allocations = input.allocations?.length ? await this.checkPurchaseAllocations(tx, input.supplierId, input.amountP, input.allocations) : [];
-
-      const payment = await insertVoucher(tx, actor, today, {
-        direction: "OUT",
-        partyType: "SUPPLIER",
-        partyId: sup.id,
-        // the legacy printed the supplier's contact person (`cp`) as the "owner" line and no region
-        snapshot: { name: sup.name, owner: cleanText((sup.doc as { cp?: unknown } | null)?.cp), region: null },
-        amountP: input.amountP,
-        common: input,
-      });
-      if (allocations.length) {
-        await tx.insert(paymentAllocations).values(allocations.map((a) => ({ paymentId: payment.id, purchaseId: a.documentId, amountP: a.amountP })));
-      }
-      // Deliberately NOT touching purchases.status: a purchase's payment state is M3's (the legacy `_write` never did either).
-      await this.audit(tx, actor, "Payment made to supplier", payment.id, null, {
-        receiptNumber: payment.receiptNumber,
-        amountP: input.amountP,
-        method: payment.method,
-        party: sup.name,
-        allocations: allocations.map((a) => ({ purchaseId: a.documentId, amountP: a.amountP })),
-      });
-      return payment.id;
-    });
+    return this.create(input.idempotencyKey, actor, (tx, today) => writePayout(tx, actor, today, input));
   }
 
   /* ── refund: money out to a shop ───────────────────────────────────── */
@@ -246,38 +219,6 @@ export class PaymentsService {
     const [p] = await tx.select().from(payments).where(eq(payments.id, id)).for("update").limit(1);
     if (!p) throw new NotFoundError(PAYMENT_MESSAGES.notFound);
     return p;
-  }
-
-  /** Same guards for a supplier payment's optional purchase allocations (outstanding = total − allocations of POSTED payments; CANCELLED refused). */
-  private async checkPurchaseAllocations(tx: Tx, supplierId: string, amountP: number, requested: { purchaseId: string; amountP: number }[]): Promise<Allocation[]> {
-    const errors: string[] = [];
-    const ids = requested.map((a) => a.purchaseId);
-    if (new Set(ids).size !== ids.length) errors.push("The same purchase appears more than once in the allocations.");
-
-    const locked = await lockPurchases(tx, [...new Set(ids)]);
-    const byId = new Map(locked.map((p) => [p.id, p]));
-    const outstanding = new Map((await purchaseOutstanding(tx, [...byId.keys()])).map((r) => [r.id, r]));
-
-    const seen = new Set<string>();
-    for (const a of requested) {
-      const pur = byId.get(a.purchaseId);
-      if (!pur) {
-        errors.push("A purchase in the allocations does not exist.");
-        continue;
-      }
-      const label = pur.number ?? "(draft)";
-      if (pur.supplierId !== supplierId) errors.push(`Purchase ${label} does not belong to this supplier.`);
-      else if (pur.status === "CANCELLED") errors.push(`Purchase ${label} is cancelled and cannot be paid.`);
-      else if (!seen.has(a.purchaseId)) {
-        const due = outstanding.get(a.purchaseId)?.outstandingP ?? 0;
-        if (a.amountP > due) errors.push(`Purchase ${label}: ${rupees(a.amountP)} is more than the ${rupees(Math.max(due, 0))} outstanding.`);
-      }
-      seen.add(a.purchaseId);
-    }
-    const total = requested.reduce((sum, a) => sum + a.amountP, 0);
-    if (total > amountP) errors.push(`The allocations total ${rupees(total)}, more than the ${rupees(amountP)} paid.`);
-    if (errors.length) throw new BusinessRuleError([...new Set(errors)]);
-    return requested.map((a) => ({ documentId: a.purchaseId, amountP: a.amountP }));
   }
 
   private async audit(tx: Tx, actor: Actor, action: string, paymentId: string, before: unknown, after: unknown): Promise<void> {

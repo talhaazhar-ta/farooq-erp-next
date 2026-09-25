@@ -64,14 +64,53 @@ export interface MovementInput {
   createdBy: string;
 }
 
-/** Appends one movement (bucket `stock`, no cost, as the legacy wrote a sale) and moves the level by the same amount. */
-export async function applyMovement(tx: Tx, m: MovementInput): Promise<void> {
+/** Any document's movement (S12 generalised `applyMovement` for purchases): bucket `stock`, the level moves by the same amount. */
+export interface StockMovementInput {
+  date: string;
+  productId: string;
+  warehouseId: string;
+  kind: string;
+  /** Signed: negative takes bags out of the godown. */
+  qtyDeltaMilli: number;
+  /** Cost per bag when known (a purchase's IN); null = no cost recorded, as the legacy wrote a sale. */
+  unitCostP: number | null;
+  ref: string | null;
+  refType: string;
+  sourceType: "INVOICE" | "PURCHASE";
+  sourceId: string;
+  note: string | null;
+  createdBy: string;
+}
+
+export async function applyStockMovement(tx: Tx, m: StockMovementInput): Promise<void> {
   await tx.insert(stockMovements).values({
     date: m.date,
     productId: m.productId,
     warehouseId: m.warehouseId,
     kind: m.kind,
     bucket: "stock",
+    qtyDeltaMilli: m.qtyDeltaMilli,
+    unitCostP: m.unitCostP,
+    ref: m.ref,
+    refType: m.refType,
+    sourceType: m.sourceType,
+    sourceId: m.sourceId,
+    note: m.note,
+    createdBy: m.createdBy,
+  });
+  await tx
+    .update(stockLevels)
+    .set({ qtyMilli: sql`${stockLevels.qtyMilli} + ${m.qtyDeltaMilli}`, updatedAt: sql`now()` })
+    .where(and(eq(stockLevels.productId, m.productId), eq(stockLevels.warehouseId, m.warehouseId), eq(stockLevels.bucket, "stock")));
+}
+
+/** Appends one invoice movement (bucket `stock`, no cost, as the legacy wrote a sale) and moves the level by the same amount. */
+export async function applyMovement(tx: Tx, m: MovementInput): Promise<void> {
+  await applyStockMovement(tx, {
+    date: m.date,
+    productId: m.productId,
+    warehouseId: m.warehouseId,
+    kind: m.kind,
     qtyDeltaMilli: m.qtyDeltaMilli,
     unitCostP: null,
     ref: m.ref,
@@ -81,10 +120,6 @@ export async function applyMovement(tx: Tx, m: MovementInput): Promise<void> {
     note: m.note,
     createdBy: m.createdBy,
   });
-  await tx
-    .update(stockLevels)
-    .set({ qtyMilli: sql`${stockLevels.qtyMilli} + ${m.qtyDeltaMilli}`, updatedAt: sql`now()` })
-    .where(and(eq(stockLevels.productId, m.productId), eq(stockLevels.warehouseId, m.warehouseId), eq(stockLevels.bucket, "stock")));
 }
 
 /** The kinds of movement the legacy `carriedCost` counts: stock that came in without ever touching `avgCostP`. */

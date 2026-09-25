@@ -39,7 +39,7 @@ documents, stock value, average-cost maintenance and the COGS journal. Not used 
 | **S9: invoice list, view, print, corrections + e2e ✓** | list/search/cards/CSV, view page, print (classic + standard, A4), discard / cancel / duplicate / change shop, profit block, statement Qty + Receive-panel detail; Playwright; screenshots reviewed | e2e green; screenshots reviewed; reconciliation 0 |
 | **S10: invoice builder + e2e — closes M2 ✓** | new / edit / post, live totals, stock and price hints, payment at sale, edit posted (net, stale revision), unsaved-changes guard, phone layout; Playwright; M2 summary | e2e green; "not seen by a person" list; M2 complete |
 
-## M3 — Purchases (planned 2026-09-25; **S11 done 2026-09-25**, S12–S14 drafts)
+## M3 — Purchases (planned 2026-09-25; **S11 and S12 done 2026-09-25**, S13–S14 drafts)
 
 Supplier bills end to end: lines (ordered / received per line, per-line warehouse), `PURCHASE_IN` on the M2 stock ledger, the payment made with the purchase,
 edit (money only ever added, stable line ids, net stock guard, supplier locked once anything is attached), **average-cost maintenance**, list / search / print, the builder.
@@ -57,7 +57,7 @@ Not used by staff; the live ERP stays the system of record.
 | Session | Scope | Done when |
 |---|---|---|
 | **S11: purchase lines + full header + average cost (data, import)** | migration `0008` (header columns, `purchase_items`, unique number), `ledger.ts` purchase builder, shared `purchase-cost.ts` (`allocateCharges`, `weightedAverage`), importer maps lines, reconciliation of purchase totals, purchase ↔ stock and average cost | fixture + v710 + v692: 0 differences on every check — **done (S11)** |
-| **S12: Purchases service + API** | create, edit (net), payment with the purchase (shared payout core), average-cost writes, permissions, idempotency, concurrency, ledger bridge | rule tests + 403s + bridge green; reconciliation 0 |
+| **S12: Purchases service + API ✓** | create, edit (net), payment with the purchase (shared payout core), average-cost writes, permissions, idempotency, concurrency, ledger bridge | rule tests + 403s + bridge green; reconciliation 0 |
 | **S13: list, view, print** | search / filters / cards / CSV, view page, A4 print (server + screens), Playwright | e2e green; screenshots and PDF reviewed |
 | **S14: builder — closes M3** | new / edit purchase builder, phone layout, Playwright, M3 summary | e2e green; M3 complete |
 

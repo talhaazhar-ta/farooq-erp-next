@@ -51,7 +51,7 @@ test("new invoice → save a draft (many drafts may exist) → edit it → post 
   // save a DRAFT: no number, no stock, no balance
   await page.getByTestId("save-draft").click();
   await expect(page).toHaveURL(/\/invoices\/[0-9a-f-]{36}$/);
-  await expect(page.getByTestId("toast").first()).toContainText("Draft saved");
+  await expect(page.getByTestId("toast").filter({ hasText: "Draft saved" }).first()).toBeVisible();
   const draftId = page.url().split("/").pop()!;
   let d = await invoiceDetailOf(api, draftId);
   expect(d.status).toBe("DRAFT");
@@ -80,7 +80,8 @@ test("new invoice → save a draft (many drafts may exist) → edit it → post 
 
   // posted: its own number, and the server did everything at once
   await expect(page).toHaveURL(new RegExp(`/invoices/${draftId}$`));
-  await expect(page.getByTestId("toast").first()).toContainText("posted");
+  // the toast is found by its text: the earlier "Draft saved" toast may still be on screen, so `.first()` alone read the wrong one (a flake seen once on S11)
+  await expect(page.getByTestId("toast").filter({ hasText: "posted" }).first()).toBeVisible();
   d = await invoiceDetailOf(api, draftId);
   expect(d.number).toMatch(/^INV-\d{4}-\d{6}$/);
   expect(d.status).toBe("PARTIALLY_PAID");
@@ -279,7 +280,7 @@ test("edit a posted invoice UP and DOWN: the question first, the shop locked, st
   await expect(page.getByTestId("line-avail").first()).toContainText(`${stock0 - 10 + 10} available`);
   await page.getByTestId("save-post").click();
   await expect(page).toHaveURL(new RegExp(`/invoices/${inv.id}$`));
-  await expect(page.getByTestId("toast").first()).toContainText("updated");
+  await expect(page.getByTestId("toast").filter({ hasText: "updated" }).first()).toBeVisible();
   let d = await invoiceDetailOf(api, inv.id);
   expect(d.number).toBe(inv.number);
   expect(d.totalP).toBe(2_800_000);
@@ -620,7 +621,7 @@ test("Post invoice on a draft's page: it says what will happen, the stock refusa
   await page.getByTestId("action-post").click();
   await page.getByRole("dialog", { name: "Post this invoice?" }).getByTestId("confirm-post").click();
   await expect(page.getByTestId("invoice-number")).toHaveText(/^INV-\d{4}-\d{6}$/);
-  await expect(page.getByTestId("toast").first()).toContainText("posted");
+  await expect(page.getByTestId("toast").filter({ hasText: "posted" }).first()).toBeVisible();
   const posted = await invoiceDetailOf(api, ok.id);
   expect(posted.status).toBe("CONFIRMED");
   expect(await stockOf(api, "priced", main.id)).toBe(stock0 - 5);

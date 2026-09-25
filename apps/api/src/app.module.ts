@@ -4,11 +4,12 @@ import { DbModule } from "./db/db.module.js";
 import { AuthModule } from "./auth/auth.module.js";
 import { InvoicesModule } from "./invoices/invoices.module.js";
 import { PaymentsModule } from "./payments/payments.module.js";
+import { PurchasesModule } from "./purchases/purchases.module.js";
 import { StatementsModule } from "./statements/statements.module.js";
 import { HealthController } from "./health/health.controller.js";
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), DbModule, AuthModule, PaymentsModule, InvoicesModule, StatementsModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true }), DbModule, AuthModule, PaymentsModule, InvoicesModule, PurchasesModule, StatementsModule],
   controllers: [HealthController],
 })
 export class AppModule {}
