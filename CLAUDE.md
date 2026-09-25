@@ -132,6 +132,7 @@ The S4 parity / proof tests (`payments-search-parity`, `statements-proof`, `rece
 **Editing tools decode `\r`, `\n`, `\t` and `\uXXXX` inside shell / Python heredocs** — write source with the Write / Edit tools and check new files with `grep -P '[\x00-\x08\x0b\x0c\x0e-\x1f\xa0]'`.
 
 **Importer tests (S6)** also cover invoice lines and stock: `invoice-lines-stock` (hand-computed numbers), `invoice-stock-fail-loudly`, `invoice-stock-safety-net` (every reconciliation check proven to bite) and `real-backups`, which imports + reconciles the **two newest** `data/business-*.json` nightlies (skipped when there are none; never in CI; prints counts only). Reconciliation now also proves **invoice totals** (recomputed from the lines with `@farooq/shared`'s `invoiceTotals`), **stock** (legacy inventory = `stock_levels` = Σ `stock_movements`) and **invoice ↔ stock**, and exits non-zero on any mismatch. `stock_movements` is append-only for the app role. Migration `0005` is hand-appended (REVOKE + comments) after the generated part.
+**Importer tests (S11)** cover purchases: `purchase-lines-stock` (hand-computed header + lines, `receivedQty` absent = all / 0 = none, the three new reconciliation checks, the cost basis setting), `purchase-fail-loudly`, `purchase-safety-net` (every new check proven to bite), `purchase-db-rules` (what the database itself refuses + the shared `purchaseLines` builder) and `real-backups` (now also the purchase checks and, for the v710 nightly, the first real landed cost). Reconciliation now also proves **purchase totals** (recomputed from the lines with `invoiceTotals`), **purchase ↔ stock** (movements net to the bags received) and **average cost** (`@farooq/shared` `weightedAverage` over the purchase lines = every imported `avg_cost_p` that has a purchase line; the rest are listed as "kept from before") plus each line's operational share (= the landed-cost rows in the backup) and landed unit. Migration `0008` adds `purchase_items` and the full purchase header. The fixture's purchases have lines and cost figures worked out by hand in the header comment of `build-fixture.ts` ("Purchases (S11)").
 Migration `0004` contains generated SQL (`fold_search`): regenerate with `node packages/shared/scripts/generate-fold-sql.mjs` (after `pnpm build`) into a **new** migration if `fold-search-parity` ever goes red after a Node upgrade.
 
 **Running the app locally** (manual/browser checks, not CI):
@@ -147,7 +148,7 @@ pnpm --filter @farooq/web dev             # Vite on :5173
 
 `apps/web/.env.example` has `VITE_API_URL` (defaults to `http://localhost:3000`).
 
-**Importing a legacy backup + reconciliation** (S2; local Postgres only — the importer refuses any non-local host; the database must be migrated through `0005`, the importer checks):
+**Importing a legacy backup + reconciliation** (S2; local Postgres only — the importer refuses any non-local host; the database must be migrated through `0008`, the importer checks):
 
 ```
 # with the dev DB from above running and migrated:
@@ -178,7 +179,7 @@ and signs each role in once (storage states). Specs run one at a time, in file o
 ## Roadmap
 
 See `docs/ROADMAP.md` for the full milestone list. **M1 — Foundation + Payments is complete** (S1–S5). **M2 — Invoices is complete** (S6 lines + stock ✓ → S7 service + API ✓ → S8 search / print / profit server side ✓ →
-S9 list / view / print / corrections ✓ → **S10 invoice builder + e2e ✓**). **M3 — Purchases is planned** (S11 data + import → S12 service + API → S13 list / view / print → S14 builder; decisions in `docs/ROADMAP.md` → M3). S13 / S14 wait until a person has walked the M1 + M2 screens (STATUS "Next step"). The owner's three M2 decisions (cancel with receipts refused; permissions; net edit of posted invoices) are in `docs/ROADMAP.md` → M2.
+S9 list / view / print / corrections ✓ → **S10 invoice builder + e2e ✓**). **M3 — Purchases is under way** (**S11 data + import + average cost ✓** → S12 service + API → S13 list / view / print → S14 builder; decisions in `docs/ROADMAP.md` → M3). S13 / S14 wait until a person has walked the M1 + M2 screens (STATUS "Next step"). The owner's three M2 decisions (cancel with receipts refused; permissions; net edit of posted invoices) are in `docs/ROADMAP.md` → M2.
 
 ## Where to look for more detail
 

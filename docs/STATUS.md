@@ -1,10 +1,10 @@
 # Status
 
-**Last updated:** 2026-09-24 (S10 session; trimmed by the planning hub the same day). **Milestones 1 (Payments) and 2 (Invoices) are complete. M3 — Purchases is planned (2026-09-25): next is S11 (data + import); a person walks the M1 + M2 screens before S13.**
+**Last updated:** 2026-09-25 (S11 session). **Milestones 1 (Payments) and 2 (Invoices) are complete. M3 — Purchases: S11 (purchase lines, full header, average cost — data, import, reconciliation) is done; next is S12 (the purchases service + API); a person walks the M1 + M2 screens before S13.**
 Nothing is deployed; the live ERP is untouched and is still the only system of record. **No member of staff has used any screen.**
 
 **How this file works:** it holds only the *current* state — where we are, the baseline numbers, the rules still in force, open questions, the next step. Each session's full write-up (what was built, verification tables,
-mutation checks, deviations, findings, screenshots) lives in `docs/history/` (verbatim, never summarised): `S6.md` … `S10.md` (M2), `M1-S5.md` (the M1 close-out) and `S1.md` … `S4.md` (STATUS exactly as it stood at the end of each of those sessions; S3 / S4 hold the payment endpoint tables).
+mutation checks, deviations, findings, screenshots) lives in `docs/history/` (verbatim, never summarised): `S6.md` … `S10.md` (M2), `S11.md` (M3 part 1), `M1-S5.md` (the M1 close-out) and `S1.md` … `S4.md` (STATUS exactly as it stood at the end of each of those sessions; S3 / S4 hold the payment endpoint tables).
 **Grep `docs/history/` before re-deriving anything.** At the end of your session: move your own section to `docs/history/S<N>.md`, then update only the header, "Baseline", "Rules in force" (durable rules only), "Open questions" and "Next step" here.
 Keep this file under ~150 lines.
 
@@ -12,13 +12,14 @@ Keep this file under ~150 lines.
 
 - **M1 — Payments (S1–S5):** importer + reconciliation, the payments service (receive / pay / refund / reverse / edit amount), server-side search (port of module 38) + CSV, statements, receipt model, the screens, browser tests.
 - **M2 — Invoices (S6–S10):** invoice lines and stock quantities imported and reconciled; the invoices service (drafts, post, net edit, cancel, duplicate, change shop); search (port of module 33) + CSV + print model (classic and standard) + profit + statement detail; list / view / print / corrections screens; the builder (new, draft, edit, post, edit posted).
-- **Reconciliation is the definition of "correct"** (`pnpm test` re-runs it; so does e2e global setup). Newest real nightly (2026-09-23, v692): 409 customers / 35 suppliers, **0 balance differences** (receivables 2,234,290,000 = 2,234,290,000 paisa; payables 554,000,000 / 604,000,000), trial balance 42 entries BALANCED, 444 statements 0 mismatches, 17 invoices / 18 lines / 910 bags **0 total mismatches**, 15 stock rows / 48 movements **0 stock mismatches**, 17 invoices vs 24 movements **0 mismatches**. The 2026-09-22 nightly, the fixture, S8's 300-invoice synthetic backup and the e2e dataset also reconcile with 0.
-- **What M1 + M2 do not claim:** no staff use; no receipt or invoice printed on paper (only the PDF Chromium prints was read back); thin real data (17 invoices, 20 payments, 409 shops); no returns, dispatch, purchases, stock documents, COGS or average-cost maintenance yet; hosting undecided.
+- **M3 — Purchases (S11 done):** purchase lines and the full purchase header imported (migration `0008`); reconciliation now also proves purchase totals, purchase ↔ stock and every average cost that has a purchase line behind it (the port of the legacy weighted average, `@farooq/shared` `purchase-cost.ts`, with the part-delivery fix), and the first real landed cost. No purchase service, API or screen yet (S12–S14).
+- **Reconciliation is the definition of "correct"** (`pnpm test` re-runs it; so does e2e global setup). Newest real nightly (2026-09-23, v692): 409 customers / 35 suppliers, **0 balance differences** (receivables 2,234,290,000 = 2,234,290,000 paisa; payables 554,000,000 / 604,000,000), trial balance 42 entries BALANCED, 444 statements 0 mismatches, 17 invoices / 18 lines / 910 bags **0 total mismatches**, 15 stock rows / 48 movements **0 stock mismatches**, 17 invoices vs 24 movements **0 mismatches**. **S11 (v710 = 2026-09-24 nightly, the first real landed cost; v692 in brackets):** 5 purchases / 6 lines / 1,360 bags **0 total mismatches**; 5 purchases vs 14 purchase movements **0 mismatches**; average cost (LANDED basis) **6 matched (6), 10 kept from before (9), 0 mismatched**; operational share = the landed-cost rows on all 6 lines (1 carries the real 6,000,000) and landed unit = goods + charges + operational on 6 lines, **0 mismatches**; the part-delivery fix changes **0** real figures. The 2026-09-22 nightly, the fixture, S8's 300-invoice synthetic backup and the e2e dataset also reconcile with 0.
+- **What M1 + M2 do not claim:** no staff use; no receipt or invoice printed on paper (only the PDF Chromium prints was read back); thin real data (17 invoices, 20 payments, 409 shops); no returns, dispatch, purchase service / screens, stock documents, COGS or average-cost *maintenance* yet (S11 only proves the average on imported data); hosting undecided.
 
 ## Baseline (run before you change anything)
 
 `pnpm install && pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm e2e` — all green, 0 lint warnings, **and check the exit code** (until S8, CI could not fail on a failing test).
-`pnpm test`: **1,109 tests** (shared 151, web 209, import 224, api 525; 2 import tests + the real-backup datasets skip without `data/`). `pnpm e2e`: **165 Playwright tests** (~7.5 min). CI: S10 green (run 36023883386), S9 green (run 36010060366).
+`pnpm test`: **1,201 tests** (shared 167, web 209, import 300, api 525; the real-backup datasets skip without `data/`). `pnpm e2e`: **165 Playwright tests** (~7.5 min). CI: see the last section.
 
 ## Repo map
 
@@ -26,9 +27,9 @@ Keep this file under ~150 lines.
 apps/api         NestJS 11 + Fastify. src/{auth, payments, statements, invoices}/ (+ cors.ts). Controllers declare permissions; tests in test/ (+ helpers/: synthetic-payments, synthetic-invoices, legacy-*-search references)
 apps/web         React 19 + Vite + TanStack Router/Query. src/lib (pure logic + tests), src/components, src/routes. Vitest + Testing Library
 apps/e2e         Playwright. setup/ (throwaway Postgres -> import dataset -> reconcile -> users -> built api + web), tests/*.spec.ts, tests/fixtures.ts (postInvoice, stockBasics, ...)
-packages/shared  permissions/roles, Zod schemas (auth, payments, statements, invoices, invoice-list, invoice-print), business dates, fold / search-query / money, invoice-totals (Calc), line-summary, profit
-packages/db      Drizzle schema, migrations 0000-0007, ledger.ts (posting builders), stock.ts, test harness (@farooq/db/testing)
-packages/import  importer, classification.ts, LegacyLedger, prepare, load, reconcile, company, CLI, fixtures/ (build-fixture.ts = the hand-computed numbers)
+packages/shared  permissions/roles, Zod schemas (auth, payments, statements, invoices, invoice-list, invoice-print), business dates, fold / search-query / money, invoice-totals (Calc), line-summary, profit, purchase-cost (allocateCharges, weightedAverage)
+packages/db      Drizzle schema, migrations 0000-0008, ledger.ts (posting builders incl. purchases), stock.ts, settings.ts (profit cost basis), test harness (@farooq/db/testing)
+packages/import  importer, classification.ts, LegacyLedger, prepare, load, reconcile (+ reconcile-stock, reconcile-purchases), company, CLI, fixtures/ (build-fixture.ts = the hand-computed numbers)
 docs/            ROADMAP.md, PARITY.md (legacy modules + rule -> test tables + old-ERP change log), sessions/S<N>.md (plans), history/ (write-ups)
 ```
 
@@ -56,6 +57,9 @@ Auth: 5 wrong passwords lock the account 15 min plus a per-IP throttle; 12 h ses
 
 **Importer.** Local Postgres only; wipes business + ledger tables (never `users` / `sessions` / `role_permissions` / `audit_log` / `accounts`); aborts on any unknown store or field (`classification.ts` — a newer backup adding a field is exactly how you find out); deterministic UUIDv5 row ids; the old paper-book `legacy*` figures are **not** posted; `users` is never read; `business` loads verbatim with a credential-name guard.
 
+**Purchases and average cost (M3, S11).** A purchase line has its own godown; `qty_milli` = bags ORDERED, `received_qty_milli` = bags that ARRIVED (legacy `receivedQty` absent = all, 0 = none); stock moves on the received bags. The header keeps line + overall discount as ONE figure (`discount_amount_p`; overall = header − Σ line discounts). DRAFT and ORDERED purchases post to the supplier, only CANCELLED does not. `purchase_number` is unique.
+**Average cost** = Σ unit × received ÷ Σ received over every non-cancelled purchase line of one product × warehouse, always RECOMPUTED from the lines (never nudged); the unit is goods + round(charge share ÷ bags) + round(operational share ÷ bags) on the `LANDED` basis (setting `profitCostBasis`, default and real value `LANDED`; read with `readProfitCostBasis`) or the goods price on `PURCHASE`. Nothing received = no average (`null`): the caller KEEPS the old figure, and a stock row with no received purchase line is left alone (listed as "kept from before"). **Fix 3 (owner decision):** a part delivery's goods unit is the line value ÷ ORDERED bags; charges stay per received bag. The operational share on a line = the sum of its non-cancelled landed-cost rows (M6 writes it). Reconciliation proves all of it on every backup and must stay at 0 mismatches.
+
 **Web.** Screen state lives in the URL (plain `URLSearchParams` codec; `useSearch` returns the RAW address, so re-parse it). A party is never pre-selected on a money screen. Server reasons are shown verbatim (every `errors[]` line; a disabled button carries `actions.*.reason`). One representation (table OR cards) in the DOM. No external fonts, no emoji, print = A4 with fixed paper colours.
 Rupees / dates only via `parseRupees` / `formatPaisa` / `businessDateOf`. The idempotency key is kept after a failed save and renewed after a success. Hand-rolled primitives (`components/ui.tsx`), not shadcn.
 
@@ -81,10 +85,10 @@ Every screen. In particular a real phone (only a 390 px emulated viewport); a **
 
 ## Next step
 
-1. **S11 — purchase lines, full header, average cost** (`docs/sessions/S11.md`, final). Data / import / reconciliation only — it may start now.
-2. **A person walks the M1 + M2 screens on a real machine and a real phone, and prints one receipt and one invoice** (compare the classic invoice with the shop's paper sheet). This blocks **S13 / S14** (the M3 screens), not S11 / S12.
-3. M3 plan: `docs/ROADMAP.md` → M3 (user decisions 2026-09-25: average cost maintained in M3; create `PURCHASE_CREATE`, edit `PURCHASE_CREATE` | `TRANSACTION_CORRECT`, paying also `PAYMENT_PAYOUT`; four legacy bugs fixed). S12–S14 are drafts until the hub finalises each.
-4. Old-ERP changes: none since 2026-09-24 (checked 2026-09-25). The newest nightly `data/business-20260924-210002-v710-449d.json` holds the **first real landed cost** — S11 must reconcile it.
+1. **S12 — the purchases service + API** (`docs/sessions/S12.md`, **Final** 2026-09-25: read "Planner decisions after S11" first — it settles S11's five open legacy behaviours, incl. porting the Received = 0 average fall-back). Also fix the flaky `invoices-builder.spec.ts:25` (it read the first toast while "Draft saved" was still showing — failed once in the hub's full run on S11, passed 16/16 on rerun): match the toast by its text instead of `.first()`.
+2. **A person walks the M1 + M2 screens on a real machine and a real phone, and prints one receipt and one invoice** (compare the classic invoice with the shop's paper sheet). This blocks **S13 / S14** (the M3 screens), not S12.
+3. M3 plan: `docs/ROADMAP.md` → M3 (user decisions 2026-09-25: average cost maintained in M3; create `PURCHASE_CREATE`, edit `PURCHASE_CREATE` | `TRANSACTION_CORRECT`, paying also `PAYMENT_PAYOUT`; four legacy bugs fixed). S12–S14 are drafts until the hub finalises each. S11 decisions to know: the e2e dataset's purchase is still header-only (S13 adds lines); `received_qty_milli` is not capped at ordered; an `orderedQty` that differs from `quantity` aborts the import.
+4. Old-ERP changes: none since 2026-09-24 (checked 2026-09-25). The newest nightly `data/business-20260924-210002-v710-449d.json` holds the **first real landed cost** — S11 reconciles it (0 differences); S12 must keep the average-cost check at 0 on the live tables.
 
 ## CI
 

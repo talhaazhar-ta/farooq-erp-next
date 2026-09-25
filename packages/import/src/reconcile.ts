@@ -1,6 +1,7 @@
 import postgres from "postgres";
 import { createLegacyLedger, type LedgerRow } from "./legacy-ledger.js";
 import { assertLocalDatabaseUrl } from "./load.js";
+import { checkPurchases } from "./reconcile-purchases.js";
 import { checkInvoicesAndStock } from "./reconcile-stock.js";
 import { classifyStore, type Backup } from "./validate.js";
 
@@ -46,6 +47,30 @@ export interface InvoiceStockMismatch {
   product: string;
   expectedMilli: number;
   netMilli: number;
+}
+
+/** One purchase whose lines do not add up to what the header says. */
+export interface PurchaseMismatch {
+  purchase: string;
+  problems: string[];
+}
+
+/** One purchase x product x warehouse whose stock movements do not net to the bags its lines say arrived. */
+export interface PurchaseStockMismatch {
+  purchase: string;
+  product: string;
+  warehouse: string;
+  expectedMilli: number;
+  netMilli: number;
+}
+
+/** One stock row whose imported average cost is not what the purchase lines give. */
+export interface AverageCostMismatch {
+  product: string;
+  warehouse: string;
+  purchaseLines: number;
+  recomputedP: number | null;
+  storedP: number;
 }
 
 export interface CountRow {
@@ -99,6 +124,54 @@ export interface ReconciliationReport {
   };
   /** S6: a posted invoice's stock movements net to minus its line quantities (an edit's reversal + re-deduct nets out). */
   invoiceStock: { invoicesChecked: number; migratedSkipped: number; movementsChecked: number; mismatches: InvoiceStockMismatch[] };
+  /** S11: every purchase's total recomputed from its lines with the shared port of the legacy `Calc` (purchases reuse `Calc.invoice`). */
+  purchases: {
+    /** Non-cancelled purchases that have lines: recomputed and compared. */
+    checked: number;
+    lines: number;
+    /** Σ ordered / received bags on the checked purchases' lines, thousandths. */
+    orderedQtyMilli: number;
+    receivedQtyMilli: number;
+    totalMismatches: PurchaseMismatch[];
+    /** Non-cancelled purchases with no lines (an old backup): listed, not failed. */
+    noLines: string[];
+    cancelled: number;
+    /** Purchases the old app's data migration made: a mismatch is informational (their totals never came from Calc). */
+    migrated: string[];
+    migratedMismatches: PurchaseMismatch[];
+  };
+  /** S11: a purchase's stock movements (source PURCHASE) net, per product x warehouse, to the bags its lines received; a cancelled one nets 0. */
+  purchaseStock: { purchasesChecked: number; migratedSkipped: string[]; movementsChecked: number; mismatches: PurchaseStockMismatch[] };
+  /** S11: the weighted average cost of every stock row that has a purchase line behind it, recomputed; and the pieces S12 relies on. */
+  averageCost: {
+    /** The profitCostBasis setting the average was recomputed on (missing = LANDED). */
+    basis: "LANDED" | "PURCHASE";
+    /** Stock rows with a purchase line that received bags: recomputed and compared. */
+    rows: number;
+    matched: number;
+    /** Stock rows with NO purchase line: the legacy keeps their old average, so they are listed, not failed. */
+    keptFromBefore: { product: string; warehouse: string; avgCostP: number }[];
+    mismatches: AverageCostMismatch[];
+    /** Each line's operational share = the sum of its non-cancelled landed-cost rows in the backup (`inventoryCostAdjust`). */
+    operationalShare: {
+      linesChecked: number;
+      withShare: number;
+      /** Landed-cost rows whose purchase line is no longer in the backup (informational: the legacy ignores them too). */
+      orphanRows: string[];
+      mismatches: { purchase: string; line: string; storedP: number; landedCostRowsP: number }[];
+    };
+    /** Each costed line's landed unit = goods unit + round(charge share / bags) + round(operational share / bags). */
+    landedUnit: {
+      linesChecked: number;
+      skippedNothingReceived: number;
+      mismatches: { purchase: string; line: string; storedP: number; recomputedP: number }[];
+    };
+    /** Informational: the stored goods unit / charge share against `allocateCharges`. They differ on a part delivery ON PURPOSE (fix 3). */
+    allocation: {
+      linesChecked: number;
+      differs: { purchase: string; line: string; storedGoodsUnitP: number; goodsUnitP: number; storedChargeShareP: number; chargeShareP: number }[];
+    };
+  };
 }
 
 /** Which table (and filter) holds each imported store's rows. */
@@ -110,6 +183,7 @@ const LOADED_COUNT_SQL: Record<string, string> = {
   suppliers: "SELECT count(*) AS n FROM suppliers",
   invoices: "SELECT count(*) AS n FROM invoices",
   purchases: "SELECT count(*) AS n FROM purchases",
+  purchaseItems: "SELECT count(*) AS n FROM purchase_items",
   payments: "SELECT count(*) AS n FROM payments",
   paymentAllocations: "SELECT count(*) AS n FROM payment_allocations",
   customerReturns: "SELECT count(*) AS n FROM returns WHERE kind = 'CUSTOMER'",
@@ -347,6 +421,14 @@ export async function reconcile(backup: Backup, databaseUrl: string): Promise<Re
     if (stock.mismatches.length) failures.push(`${stock.mismatches.length} stock quantity mismatch(es) (inventory vs stock levels vs movements)`);
     if (invoiceStock.mismatches.length) failures.push(`${invoiceStock.mismatches.length} invoice/stock mismatch(es) (movements vs invoice lines)`);
 
+    /* ── purchase lines, purchase <-> stock, average cost (S11) ────────── */
+    const { purchases, purchaseStock, averageCost } = await checkPurchases(client, backup);
+    if (purchases.totalMismatches.length) failures.push(`${purchases.totalMismatches.length} purchase total mismatch(es) (lines vs header)`);
+    if (purchaseStock.mismatches.length) failures.push(`${purchaseStock.mismatches.length} purchase/stock mismatch(es) (movements vs purchase lines)`);
+    if (averageCost.mismatches.length) failures.push(`${averageCost.mismatches.length} average cost mismatch(es) (stock row vs purchase lines)`);
+    if (averageCost.operationalShare.mismatches.length) failures.push(`${averageCost.operationalShare.mismatches.length} operational share mismatch(es) (purchase line vs landed-cost rows)`);
+    if (averageCost.landedUnit.mismatches.length) failures.push(`${averageCost.landedUnit.mismatches.length} landed unit cost mismatch(es) (purchase line)`);
+
     return {
       ok: failures.length === 0,
       exportedAt: backup.exportedAt,
@@ -362,6 +444,9 @@ export async function reconcile(backup: Backup, databaseUrl: string): Promise<Re
       invoices,
       stock,
       invoiceStock,
+      purchases,
+      purchaseStock,
+      averageCost,
     };
   } finally {
     await client.end();
@@ -421,6 +506,38 @@ export function formatReport(r: ReconciliationReport): string {
   const is = r.invoiceStock;
   out.push(`Invoice↔stock  ${n(is.invoicesChecked)} invoices vs ${n(is.movementsChecked)} invoice movements, ${is.mismatches.length} mismatch(es); ${is.migratedSkipped} migrated invoice(s) skipped`);
   for (const m of is.mismatches) out.push(`  ✗ invoice ${m.invoice}, product ${m.product}: lines say ${bags(m.expectedMilli)}, movements net ${bags(m.netMilli)}`);
+  const pu = r.purchases;
+  out.push(
+    `Purchases      ${n(pu.checked)} checked (totals recomputed from ${n(pu.lines)} lines, ${bags(pu.orderedQtyMilli)} bags ordered, ${bags(pu.receivedQtyMilli)} received), ${pu.totalMismatches.length} total mismatch(es); ` +
+      `${pu.cancelled} cancelled not checked, ${pu.noLines.length} purchase(s) without lines`,
+  );
+  for (const m of pu.totalMismatches) out.push(`  ✗ purchase ${m.purchase}: ${m.problems.join("; ")}`);
+  if (pu.migrated.length) {
+    out.push(`  note: ${pu.migrated.length} purchase(s) were made by the old app's data migration: ${pu.migrated.join(", ")}`);
+    for (const m of pu.migratedMismatches) out.push(`  · migrated purchase ${m.purchase} (informational — its totals never came from Calc): ${m.problems.join("; ")}`);
+  }
+  if (pu.noLines.length) out.push(`  note: no lines on ${pu.noLines.slice(0, 8).join(", ")}${pu.noLines.length > 8 ? ` … and ${pu.noLines.length - 8} more` : ""}`);
+  const ps = r.purchaseStock;
+  out.push(`Purchase↔stock ${n(ps.purchasesChecked)} purchases vs ${n(ps.movementsChecked)} purchase movements, ${ps.mismatches.length} mismatch(es); ${ps.migratedSkipped.length} migrated purchase(s) skipped`);
+  for (const m of ps.mismatches) out.push(`  ✗ purchase ${m.purchase}, product ${m.product} @ warehouse ${m.warehouse}: lines say ${bags(m.expectedMilli)}, movements net ${bags(m.netMilli)}`);
+  const ac = r.averageCost;
+  out.push(
+    `Average cost   basis ${ac.basis}: ${n(ac.rows)} stock row(s) recomputed from purchase lines, ${ac.matched} matched, ${ac.mismatches.length} mismatched; ` +
+      `${ac.keptFromBefore.length} kept from before (no purchase line — the legacy keeps the old average, informational)`,
+  );
+  for (const m of ac.mismatches) out.push(`  ✗ product ${m.product} @ warehouse ${m.warehouse}: purchase lines (${m.purchaseLines}) give ${m.recomputedP === null ? "nothing" : n(m.recomputedP)}, stock row says ${n(m.storedP)} paisa`);
+  for (const k of ac.keptFromBefore) out.push(`  · kept from before: product ${k.product} @ warehouse ${k.warehouse}, average ${n(k.avgCostP)} paisa`);
+  const os = ac.operationalShare;
+  out.push(
+    `Landed cost    ${n(os.linesChecked)} line(s): operational share = landed-cost rows on ${os.linesChecked - os.mismatches.length}, ${os.mismatches.length} mismatch(es) (${os.withShare} line(s) carry a share); ` +
+      `landed unit = goods + charges + operational on ${n(ac.landedUnit.linesChecked)} costed line(s), ${ac.landedUnit.mismatches.length} mismatch(es)`,
+  );
+  for (const m of os.mismatches) out.push(`  ✗ purchase ${m.purchase}, line ${m.line}: operational share ${n(m.storedP)}, landed-cost rows say ${n(m.landedCostRowsP)}`);
+  for (const m of ac.landedUnit.mismatches) out.push(`  ✗ purchase ${m.purchase}, line ${m.line}: landed unit ${n(m.storedP)}, goods + charges + operational give ${n(m.recomputedP)}`);
+  if (os.orphanRows.length) out.push(`  note: ${os.orphanRows.length} landed-cost row(s) point at a purchase line that is no longer there (informational)`);
+  if (ac.allocation.differs.length) {
+    out.push(`  note: ${ac.allocation.differs.length} of ${n(ac.allocation.linesChecked)} line(s) carry a goods unit / charge share that the fixed allocation (part delivery, S11 fix 3) would compute differently (informational)`);
+  }
   out.push(`Paper-book     ${r.paperBook.customers} customers and ${r.paperBook.suppliers} suppliers carry a nonzero legacy paper-book figure — deliberately NOT posted (needs an owner-chosen cutover date)`);
   out.push("");
   out.push(r.ok ? "RESULT: PASS — 0 differences" : `RESULT: FAIL — ${r.failures.join("; ")}`);

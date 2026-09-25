@@ -21,6 +21,25 @@
  *   inv-7 400,000 − 50,000 (cr-4; the CANCELLED cr-2 does not count) = 350,000
  *   inv-8 600,000 − 60,000 (cr-1) = 540,000        (inv-3 DRAFT and inv-4 CANCELLED are never collectable)
  * Purchase outstanding (total − allocations): pur-1 900,000 − 250,000 = 650,000, pur-2 400,000, pur-4 100,000.
+ *
+ * Purchases (S11) — lines and cost, worked out by hand. The four headers keep their totals, statuses, dates and suppliers (so every balance above holds).
+ * The cost figures on each line are what the LEGACY stored (`Cost.allocate`, `17-profit.js`); the average is `Landed.weightedAverage` (setting profitCostBasis: not in
+ * the fixture's `business` document, so the legacy default LANDED).
+ *   pur-1  L1 p-1 @wh-1  12 bags x 60,000 = 720,000     L2 p-2 @wh-2  3 bags x 40,000 = 120,000  (receivedQty ABSENT = 3)     subtotal 840,000 + freight 40,000 + loading 20,000 = 900,000
+ *          charges 60,000 over goods 840,000:  L1 share round(60,000 x 720,000 / 840,000 = 51,428.57) = 51,429   L2 share round(8,571.43) = 8,571   (sum 60,000)
+ *          L1 landed = 60,000 + round(51,429 / 12 = 4,285.75) 4,286 + operational 0 (lc-2 CANCELLED) = 64,286
+ *          L2 landed = 40,000 + round(8,571 / 3 = 2,857) + round(9,000 / 3 = 3,000) [lc-1, POSTED] = 45,857
+ *   pur-2  DRAFT, L1 p-3 @wh-1 10 x 50,000 = 500,000 - line discount 60,000 = 440,000, received 0 (nothing arrived: no stock, still on the balance); subtotal 500,000
+ *          - line discount 60,000 - overall discount 40,000 = 400,000 (the header keeps ONE discount figure, 100,000); allocate uses the LINE value 440,000 over received || ordered = 10: goods 44,000
+ *   pur-3  CANCELLED, L1 p-2 @wh-1 6 x 50,000 = 300,000, received 6, then reversed (nets 0); not in the ledger and not in any average
+ *   pur-4  PARTIALLY_RECEIVED, L1 p-3 @wh-2 100 ordered x 1,000 = 100,000, 60 received. LEGACY goods unit = round(100,000 / 60 = 1,666.67) = 1,667 (stored here);
+ *          the fixed allocation (S11 fix 3) divides by the ORDERED bags: 1,000. No charges, so landed = goods.
+ * Average cost per stock row (bags received, lines of non-cancelled purchases only):
+ *   p-1@wh-1  L1 only                                      64,286                (kept in inventory as avg 64,286, last 64,286)
+ *   p-2@wh-2  L2 only                                      45,857
+ *   p-3@wh-2  pur-4 only                                    1,667
+ *   p-1@wh-2 80,000, p-2@wh-1 85,000 (pur-3 is cancelled), p-3@wh-1 0 (pur-2 received nothing) have NO purchase line that received bags: kept from before.
+ * Purchase movements net per purchase x product x warehouse: pur-1 p-1@wh-1 +12 (12 - 12 + 12), p-2@wh-2 +3; pur-2 none; pur-3 0 (+6 - 6); pur-4 p-3@wh-2 +60.
  */
 import { writeFileSync } from "node:fs";
 import path from "node:path";
@@ -122,24 +141,81 @@ const invoice = (id: string, no: string, customerId: string, invoiceDate: string
       `balanceAfter` chains are consistent by construction; the final `inventory` rows are worked out from the same sums. ── */
 const runningMilli = new Map<string, number>();
 let movementSeq = 0;
-const movement = (day: string, time: string, productId: string, warehouseId: string, kind: string, qtyDelta: number, refType: string, ref: string, extra: { bucket?: string; unitCostP?: number; note?: string } = {}): Doc => {
+const movement = (day: string, time: string, productId: string, warehouseId: string, kind: string, qtyDelta: number, refType: string, ref: string, extra: { bucket?: string; unitCostP?: number; note?: string; date?: string } = {}): Doc => {
   const bucket = extra.bucket ?? "stock";
   const key = `${productId}|${warehouseId}|${bucket}`;
   const next = (runningMilli.get(key) ?? 0) + Math.round(qtyDelta * 1000);
   runningMilli.set(key, next);
   return {
-    id: `mv-${++movementSeq}`, createdAt: T(day, time), date: day, productId, warehouseId, kind, qtyDelta, bucket, balanceAfter: next / 1000,
+    id: `mv-${++movementSeq}`, createdAt: T(day, time), date: extra.date ?? day, productId, warehouseId, kind, qtyDelta, bucket, balanceAfter: next / 1000,
     ref, refType, note: extra.note ?? "", unitCostP: extra.unitCostP ?? 0, userId: "Fixture",
   };
 };
 
-const purchase = (id: string, no: string, supplierId: string, purchaseDate: string, grandTotal: number, status: string, createdAt: string): Doc => ({
-  id, purchaseNumber: no, clientOpId: `op-${id}`, supplierId, supplierNameSnapshot: "", supplierInvoiceNo: "", warehouseId: "wh-1",
-  warehouseSnapshot: "Main Godown", purchaseDate, vehicleNo: "", driver: "", deliveryRef: "", subtotal: grandTotal, discountAmount: 0,
-  taxAmount: 0, freightAmount: 0, loadingAmount: 0, otherCharges: 0, grandTotal, paidAmount: 0, balanceAmount: grandTotal,
-  paymentStatus: "UNPAID", status, notes: "", totalQty: 10, lineCount: 1, createdBy: "Fixture", createdAt, updatedAt: createdAt,
-  stockApplied: true, orderedQty: 10, receivedQty: 10, revision: 1,
-});
+/**
+ * One purchase line as the fixture author states it: bags ordered / received, money in paisa, and the cost figures the LEGACY stored on
+ * the line (`goodsUnitCost`, `chargeShare`, `landedUnitCost`, `operationalShare`) — worked out by hand in the header comment. `received`
+ * omitted = the `receivedQty` key is ABSENT on the document (the legacy reads that as "the whole line arrived"); 0 = nothing arrived.
+ */
+interface PurchaseLineSpec {
+  p: string;
+  wh: string;
+  qty: number;
+  unit: number;
+  disc?: number;
+  tax?: number;
+  received?: number;
+  goods: number;
+  share: number;
+  landed: number;
+  op?: number;
+}
+interface PurchaseCharges {
+  invoiceDiscount?: number;
+  freight?: number;
+  loading?: number;
+  other?: number;
+}
+
+/** The purchase line documents, in the order they were built (`data.purchaseItems`). */
+const purchaseItemDocs: Doc[] = [];
+
+/**
+ * A purchase whose HEADER is worked out from its lines with plain integer arithmetic (deliberately not the shared `invoiceTotals`: the
+ * fixture is an independent witness). `grandTotal` = subtotal − item discounts − overall discount + tax + freight + loading + other; the
+ * legacy keeps line + overall discounts as ONE figure (`discountAmount`). The header's godown is the default; lines carry their own.
+ */
+const purchase = (id: string, no: string, supplierId: string, purchaseDate: string, status: string, createdAt: string, lines: PurchaseLineSpec[], charges: PurchaseCharges = {}, extra: Doc = {}): Doc => {
+  const subtotal = lines.reduce((a, l) => a + l.qty * l.unit, 0);
+  const itemDiscounts = lines.reduce((a, l) => a + (l.disc ?? 0), 0);
+  const taxAmount = lines.reduce((a, l) => a + (l.tax ?? 0), 0);
+  const overall = charges.invoiceDiscount ?? 0;
+  const freightAmount = charges.freight ?? 0;
+  const loadingAmount = charges.loading ?? 0;
+  const otherCharges = charges.other ?? 0;
+  const grandTotal = subtotal - itemDiscounts - overall + taxAmount + freightAmount + loadingAmount + otherCharges;
+  const orderedQty = lines.reduce((a, l) => a + l.qty, 0);
+  const receivedQty = lines.reduce((a, l) => a + (l.received ?? l.qty), 0);
+  lines.forEach((l, i) => {
+    const doc: Doc = {
+      id: `pi-${id}-${i + 1}`, purchaseId: id, sortOrder: i, productId: l.p, descriptionSnapshot: `Fixture ${l.p}`, descriptionEnSnapshot: `Fixture ${l.p}`,
+      brandSnapshot: "Fixture", packageSnapshot: "50 KG", quantity: l.qty, orderedQty: l.qty, receivedQty: l.received ?? l.qty, unit: "Bag", unitPrice: l.unit,
+      discount: l.disc ?? 0, tax: l.tax ?? 0, lineTotal: l.qty * l.unit - (l.disc ?? 0) + (l.tax ?? 0), warehouseId: l.wh, batchNo: "", returnedQty: 0, notes: "",
+      goodsUnitCost: l.goods, chargeShare: l.share, landedUnitCost: l.landed,
+    };
+    if (l.received === undefined) delete doc.receivedQty;
+    if (l.op !== undefined) doc.operationalShare = l.op;
+    purchaseItemDocs.push(doc);
+  });
+  return {
+    id, purchaseNumber: no, clientOpId: `op-${id}`, supplierId, supplierNameSnapshot: SNAP[supplierId]?.[0] ?? "", supplierInvoiceNo: "", warehouseId: "wh-1",
+    warehouseSnapshot: "Main Godown", purchaseDate, vehicleNo: "", driver: "", deliveryRef: "", subtotal, discountAmount: itemDiscounts + overall,
+    taxAmount, freightAmount, loadingAmount, otherCharges, grandTotal, paidAmount: 0, balanceAmount: grandTotal,
+    paymentStatus: "UNPAID", status, notes: "", totalQty: orderedQty, lineCount: lines.length, createdBy: "Fixture", createdAt, updatedAt: createdAt,
+    stockApplied: receivedQty > 0, orderedQty, receivedQty, revision: 1,
+    ...extra,
+  };
+};
 
 /** What a voucher printed about its party when it was made (name, owner, region as "اردو — English"): the legacy `*Snapshot` fields. */
 const SNAP: Record<string, [string, string, string]> = {
@@ -195,6 +271,7 @@ const seq = (kind: string, n: number) => ({ k: `${kind}:2026`, kind, year: 2026,
 export function buildFixture() {
   // module-level builders keep running state (line documents, stock balances): a fresh fixture starts from nothing
   invoiceItemDocs.length = 0;
+  purchaseItemDocs.length = 0;
   runningMilli.clear();
   movementSeq = 0;
   const data: Record<string, Doc[]> = {
@@ -261,11 +338,29 @@ export function buildFixture() {
       invoice("inv-8", "INV-2026-000007", "cust-1", "2026-02-15", "PARTIALLY_RETURNED", T("2026-02-15", "05:00:00"),
         [{ p: "p-1", qty: 4, unit: 100_000, cost: 80_000, returned: 0.6 }, { p: "p-2", qty: 2, unit: 100_000, cost: 85_000 }]),
     ],
+    // Lines and cost figures are worked out by hand in the header comment ("Purchases (S11)"); the totals, statuses, dates and suppliers
+    // are the ones every M1 / M2 number was built on.
     purchases: [
-      purchase("pur-1", "PUR-2026-000001", "sup-1", "2026-02-20", 900000, "RECEIVED", T("2026-02-20", "09:00:00")),
-      purchase("pur-2", "PUR-2026-000002", "sup-2", "2026-02-22", 400000, "DRAFT", T("2026-02-22", "05:00:00")), // DRAFT purchases count
-      purchase("pur-3", "PUR-2026-000003", "sup-2", "2026-02-22", 300000, "CANCELLED", T("2026-02-22", "06:00:00")),
-      purchase("pur-4", "PUR-2026-000004", "sup-4", "2026-02-25", 100000, "ORDERED", T("2026-02-25", "05:00:00")),
+      // RECEIVED and EDITED once (PURCHASE_IN -> PURCHASE_REVERSAL_OUT -> PURCHASE_IN on both lines). TWO lines in TWO godowns, freight + loading spread over
+      // them, the second line's `receivedQty` ABSENT (= all 3 arrived) and carrying a landed-cost entry (operationalShare 9,000); the first line's
+      // landed-cost entry was CANCELLED (operationalShare 0, a number, not absent)
+      purchase("pur-1", "PUR-2026-000001", "sup-1", "2026-02-20", "RECEIVED", T("2026-02-20", "09:00:00"),
+        [
+          { p: "p-1", wh: "wh-1", qty: 12, unit: 60_000, received: 12, goods: 60_000, share: 51_429, landed: 64_286, op: 0 },
+          { p: "p-2", wh: "wh-2", qty: 3, unit: 40_000, goods: 40_000, share: 8_571, landed: 45_857, op: 9_000 },
+        ],
+        { freight: 40_000, loading: 20_000 }, { revision: 2, updatedAt: T("2026-02-21", "09:00:00") }),
+      // a DRAFT bill nothing has arrived for (received 0): no stock, still on the supplier's balance (DRAFT purchases count). It carries BOTH kinds of
+      // discount: 60,000 on the line and 40,000 overall; the legacy keeps them as ONE figure (discountAmount 100,000) and the overall part is what is not on a line
+      purchase("pur-2", "PUR-2026-000002", "sup-2", "2026-02-22", "DRAFT", T("2026-02-22", "05:00:00"),
+        [{ p: "p-3", wh: "wh-1", qty: 10, unit: 50_000, disc: 60_000, received: 0, goods: 44_000, share: 0, landed: 44_000 }], { invoiceDiscount: 40_000 }),
+      // CANCELLED: its 6 bags came back out (nets 0), it is not in the ledger and not in any average
+      purchase("pur-3", "PUR-2026-000003", "sup-2", "2026-02-22", "CANCELLED", T("2026-02-22", "06:00:00"),
+        [{ p: "p-2", wh: "wh-1", qty: 6, unit: 50_000, received: 6, goods: 50_000, share: 0, landed: 50_000 }], {}, { stockApplied: false }),
+      // a PART DELIVERY (fix 3's case): 100 bags ordered at 1,000, 60 arrived, into the SECOND godown. The legacy divided the line by the RECEIVED bags:
+      // goods unit round(100,000 / 60) = 1,667 — what this backup stores; the fixed allocation says 1,000
+      purchase("pur-4", "PUR-2026-000004", "sup-4", "2026-02-25", "PARTIALLY_RECEIVED", T("2026-02-25", "05:00:00"),
+        [{ p: "p-3", wh: "wh-2", qty: 100, unit: 1_000, received: 60, goods: 1_667, share: 0, landed: 1_667 }]),
     ],
     payments: [
       // partial allocations across two invoices
@@ -315,12 +410,17 @@ export function buildFixture() {
 
     // ── deferred / ignored stores: present so the counts are reconciled, contents fabricated ──
     invoiceItems: invoiceItemDocs,
-    // Final stock, worked out by hand (bags): p-1@wh-1 90.5 (+0.6 damaged), p-1@wh-2 32, p-2@wh-1 52, p-3@wh-1 38 — see stockMovements
+    purchaseItems: purchaseItemDocs,
+    // Final stock, worked out by hand (bags): p-1@wh-1 90.5 (+0.6 damaged), p-1@wh-2 32, p-2@wh-1 52, p-3@wh-1 38, p-2@wh-2 3 (pur-1), p-3@wh-2 60 (pur-4) — see stockMovements.
+    // Average costs (S11, worked out in the header comment "Purchases (S11)"): p-1@wh-1 64,286, p-2@wh-2 45,857 and p-3@wh-2 1,667 come from purchase lines;
+    // p-1@wh-2 (80,000), p-2@wh-1 (85,000) and p-3@wh-1 (0) have NO purchase line that received bags behind them (pur-3 is cancelled, pur-2 received nothing): kept from before.
     inventory: [
-      { id: "p-1|wh-1", productId: "p-1", warehouseId: "wh-1", qty: 90.5, damagedQty: 0.6, avgCostP: 79_000, lastCostP: 75_000 },
+      { id: "p-1|wh-1", productId: "p-1", warehouseId: "wh-1", qty: 90.5, damagedQty: 0.6, avgCostP: 64_286, lastCostP: 64_286 },
       { id: "p-1|wh-2", productId: "p-1", warehouseId: "wh-2", qty: 32, damagedQty: 0, avgCostP: 80_000, lastCostP: 0 },
       { id: "p-2|wh-1", productId: "p-2", warehouseId: "wh-1", qty: 52, damagedQty: 0, avgCostP: 85_000, lastCostP: 85_000 },
       { id: "p-3|wh-1", productId: "p-3", warehouseId: "wh-1", qty: 38, damagedQty: 0, avgCostP: 0, lastCostP: 0 },
+      { id: "p-2|wh-2", productId: "p-2", warehouseId: "wh-2", qty: 3, damagedQty: 0, avgCostP: 45_857, lastCostP: 45_857 },
+      { id: "p-3|wh-2", productId: "p-3", warehouseId: "wh-2", qty: 60, damagedQty: 0, avgCostP: 1_667, lastCostP: 1_667 },
     ],
     stockMovements: [
       // stock in (January): the legacy names a stock-receipt document in `ref`; stock documents are M4, so it is carried by name
@@ -351,12 +451,35 @@ export function buildFixture() {
       movement("2026-02-15", "05:00:11", "p-2", "wh-1", "SALE_OUT", -2, "INVOICE", "INV-2026-000007", { note: "Al-Noor Traders" }),
       movement("2026-02-16", "06:00:10", "p-1", "wh-1", "CUSTOMER_RETURN_DAMAGED_IN", 0.6, "CUSTOMER_RETURN", "CR-2026-000001", { bucket: "damaged", note: "Return CR-2026-000001" }),
       // pur-1 (received), edited once (reverse + re-add): PURCHASE_EDIT links to the purchase by its number too
-      movement("2026-02-20", "09:00:10", "p-1", "wh-1", "PURCHASE_IN", 12, "PURCHASE", "PUR-2026-000001", { unitCostP: 75_000, note: "Sunrise Mills Ltd" }),
+      movement("2026-02-20", "09:00:10", "p-1", "wh-1", "PURCHASE_IN", 12, "PURCHASE", "PUR-2026-000001", { unitCostP: 60_000, note: "Sunrise Mills Ltd" }),
       movement("2026-02-21", "09:00:10", "p-1", "wh-1", "PURCHASE_REVERSAL_OUT", -12, "PURCHASE_EDIT", "PUR-2026-000001", { note: "Reversed on purchase edit" }),
-      movement("2026-02-21", "09:00:11", "p-1", "wh-1", "PURCHASE_IN", 12, "PURCHASE", "PUR-2026-000001", { unitCostP: 75_000, note: "Sunrise Mills Ltd" }),
+      movement("2026-02-21", "09:00:11", "p-1", "wh-1", "PURCHASE_IN", 12, "PURCHASE", "PUR-2026-000001", { unitCostP: 60_000, note: "Sunrise Mills Ltd" }),
       // a transfer between the two godowns
       movement("2026-02-22", "10:00:10", "p-1", "wh-1", "TRANSFER_OUT", -5, "TRANSFER", "TRF-2026-000001"),
       movement("2026-02-22", "10:00:11", "p-1", "wh-2", "TRANSFER_IN", 5, "TRANSFER", "TRF-2026-000001"),
+      // pur-1's SECOND line (p-2 into the second godown), with the same edit history: the edit's reversal is dated the ORIGINAL purchase date
+      movement("2026-02-20", "09:00:12", "p-2", "wh-2", "PURCHASE_IN", 3, "PURCHASE", "PUR-2026-000001", { unitCostP: 40_000, note: "Sunrise Mills Ltd" }),
+      movement("2026-02-21", "09:00:12", "p-2", "wh-2", "PURCHASE_REVERSAL_OUT", -3, "PURCHASE_EDIT", "PUR-2026-000001", { note: "Reversed on purchase edit", date: "2026-02-20" }),
+      movement("2026-02-21", "09:00:13", "p-2", "wh-2", "PURCHASE_IN", 3, "PURCHASE", "PUR-2026-000001", { unitCostP: 40_000, note: "Sunrise Mills Ltd" }),
+      // pur-3 was received, then CANCELLED: the 6 bags came back out (net 0)
+      movement("2026-02-22", "06:00:10", "p-2", "wh-1", "PURCHASE_IN", 6, "PURCHASE", "PUR-2026-000003", { unitCostP: 50_000, note: "Tariq Brothers" }),
+      movement("2026-02-22", "07:00:10", "p-2", "wh-1", "PURCHASE_REVERSAL_OUT", -6, "PURCHASE_EDIT", "PUR-2026-000003", { note: "Reversed on purchase cancel" }),
+      // pur-4: 60 of the 100 ordered bags arrived (pur-2 received nothing: no movement)
+      movement("2026-02-25", "05:00:10", "p-3", "wh-2", "PURCHASE_IN", 60, "PURCHASE", "PUR-2026-000004", { unitCostP: 1_000, note: "الفلاح ملز" }),
+    ],
+    // Landed cost (a deferred store — M6 — but reconciliation READS it): lc-1 put 9,000 of unloading on pur-1's second line (3 bags: 3,000 a bag), lc-2 put 5,000
+    // on its first line and was CANCELLED, so that line's operational share is 0 and only lc-1 counts. Shapes are the real v710 rows' key sets.
+    landedCosts: [
+      { id: "lc-1", referenceNumber: "LC-2026-000001", purchaseId: "pur-1", purchaseNumber: "PUR-2026-000001", transferId: null, warehouseId: "wh-2", costDate: "2026-02-23", totalAmount: 9_000, goodsValue: 120_000, notes: "", description: "", status: "POSTED", createdBy: "Fixture", createdAt: T("2026-02-23", "09:00:00") },
+      { id: "lc-2", referenceNumber: "LC-2026-000002", purchaseId: "pur-1", purchaseNumber: "PUR-2026-000001", transferId: null, warehouseId: "wh-1", costDate: "2026-02-23", totalAmount: 5_000, goodsValue: 720_000, notes: "", description: "", status: "CANCELLED", createdBy: "Fixture", createdAt: T("2026-02-23", "10:00:00") },
+    ],
+    landedCostExpenses: [
+      { id: "lce-1", landedCostId: "lc-1", category: "Unloading", description: "", amountP: 9_000, vendorName: "", paymentStatus: "UNPAID", expenseDate: "2026-02-23" },
+      { id: "lce-2", landedCostId: "lc-2", category: "Unloading", description: "", amountP: 5_000, vendorName: "", paymentStatus: "UNPAID", expenseDate: "2026-02-23" },
+    ],
+    inventoryCostAdjust: [
+      { id: "ica-1", landedCostId: "lc-1", productId: "p-2", purchaseItemId: "pi-pur-1-2", purchaseId: "pur-1", warehouseId: "wh-2", purchaseCost: 40_000, additionalCost: 9_000, landedCost: 43_000, quantity: 3, costPerUnit: 43_000, createdAt: T("2026-02-23", "09:00:00") },
+      { id: "ica-2", landedCostId: "lc-2", productId: "p-1", purchaseItemId: "pi-pur-1-1", purchaseId: "pur-1", warehouseId: "wh-1", purchaseCost: 60_000, additionalCost: 5_000, landedCost: 60_417, quantity: 12, costPerUnit: 60_417, createdAt: T("2026-02-23", "10:00:00") },
     ],
     operations: [{ opId: "op-inv-1", entity: "Invoice", entityId: "inv-1", ref: "INV-2026-000001", createdAt: T("2026-02-01", "05:00:00"), state: "DONE" }],
     // credentials store: fabricated pin/salt; must never be imported or read
@@ -377,8 +500,8 @@ export function buildFixture() {
   };
   // every other store the real backup has, empty
   for (const s of [
-    "purchaseItems", "customerReturnItems", "supplierReturnItems", "stockDocs", "stockDocItems", "orders", "orderItems",
-    "expenses", "landedCosts", "landedCostExpenses", "inventoryCostAdjust", "employees", "salaryPayments", "millingJobItems",
+    "customerReturnItems", "supplierReturnItems", "stockDocs", "stockDocItems", "orders", "orderItems",
+    "expenses", "employees", "salaryPayments", "millingJobItems",
     "millingArrivals", "supplierProducts", "priceHistory", "priceApprovals", "costHistory", "salesmen", "documents", "documentEdits",
     "auditLog", "migrationBackups",
   ]) data[s] = [];

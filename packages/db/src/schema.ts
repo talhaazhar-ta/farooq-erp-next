@@ -275,7 +275,7 @@ export const requestKeys = pgTable("request_keys", {
   createdAt: createdAt(),
 });
 
-/* ── transaction tables: invoices carry lines since S6; purchases stay header-only until M3 ────────── */
+/* ── transaction tables: invoices carry lines since S6, purchases since S11 ────────── */
 
 export const invoices = pgTable(
   "invoices",
@@ -503,6 +503,12 @@ export const stockLevels = pgTable(
   ],
 );
 
+/**
+ * A supplier bill (legacy `purchases`). S11 gave it the full header and its lines (`purchase_items`); the service and API are S12.
+ * `paidAmount` / `balanceAmount` / `paymentStatus` are NOT stored: they are derived from the payment allocations (S2 decision).
+ * The legacy has no purchase drafts and no cancel: a saved purchase is RECEIVED, PARTIALLY_RECEIVED or ORDERED (from the bags
+ * its lines received). DRAFT / CANCELLED rows exist only in old or hand-made data; both still import, and DRAFT posts.
+ */
 export const purchases = pgTable(
   "purchases",
   {
@@ -511,16 +517,123 @@ export const purchases = pgTable(
     purchaseNumber: text("purchase_number"),
     supplierId: uuid("supplier_id").references(() => suppliers.id),
     date: date("date").notNull(),
+    /** The grand total (legacy `grandTotal`) - what posts to PURCHASES / PAYABLES. */
     totalP: moneyP("total_p"),
     status: text("status").notNull().default("DRAFT"),
     createdAt: createdAt(),
     legacyDoc: legacyDoc(),
     /** Folded number and its compact form (see invoices.search_number). Generated. */
     searchNumber: text("search_number").generatedAlwaysAs(sql`search_join(purchase_number, search_compact(purchase_number))`),
+
+    /* ── S11: the rest of the header, mapped out of legacy_doc (S12 writes them) ── */
+    /* What the bill printed about the supplier / godown when it was made: a later rename does not change an old purchase. */
+    supplierNameSnapshot: text("supplier_name_snapshot"),
+    /** The supplier's own bill number (legacy `supplierInvoiceNo`). */
+    supplierInvoiceNo: text("supplier_invoice_no"),
+    /** The header's default godown; every LINE carries its own (`purchase_items.warehouse_id`) and that is the one stock moves in. */
+    warehouseId: uuid("warehouse_id").references(() => warehouses.id),
+    warehouseSnapshot: text("warehouse_snapshot"),
+    vehicleNo: text("vehicle_no"),
+    driver: text("driver"),
+    deliveryRef: text("delivery_ref"),
+    /** Σ gross (unit price x quantity) before any discount. */
+    subtotalP: moneyP("subtotal_p"),
+    /** The legacy stores line discounts + the overall discount as ONE figure and this keeps that meaning; the overall part is this minus Σ line discounts (legacy `toDraft`). */
+    discountAmountP: moneyP("discount_amount_p"),
+    /** Σ line tax. */
+    taxP: moneyP("tax_p"),
+    freightP: moneyP("freight_p"),
+    loadingP: moneyP("loading_p"),
+    otherChargesP: moneyP("other_charges_p"),
+    /** Σ ordered bags (legacy `totalQty`) / Σ ordered / Σ received bags, thousandths. */
+    totalQtyMilli: bigint("total_qty_milli", { mode: "number" }).notNull().default(0),
+    orderedQtyMilli: bigint("ordered_qty_milli", { mode: "number" }).notNull().default(0),
+    receivedQtyMilli: bigint("received_qty_milli", { mode: "number" }).notNull().default(0),
+    lineCount: integer("line_count").notNull().default(0),
+    notes: text("notes"),
+    description: text("description"),
+    /** True while the received bags are in the godown (PURCHASE_IN booked). */
+    stockApplied: boolean("stock_applied").notNull().default(false),
+    /** Legacy `migrated: true`: made by the old app's data migration from the single-product purchase record. */
+    migrated: boolean("migrated").notNull().default(false),
+    revision: integer("revision").notNull().default(0),
+    /** The user who saved it (S12). Null on imported rows: the legacy app stored a display name, kept in legacy_doc. */
+    createdBy: uuid("created_by").references(() => users.id),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    /** The old client's offline-sync operation id, verbatim; the new API keeps its own idempotency in `request_keys`. */
+    clientOpId: text("client_op_id"),
   },
   (t) => [
     index("purchases_purchase_number_idx").on(t.purchaseNumber),
     index("purchases_supplier_idx").on(t.supplierId),
+    index("purchases_warehouse_idx").on(t.warehouseId),
+    // One number, one purchase (a NULL number identifies nothing).
+    uniqueIndex("purchases_purchase_number_uq")
+      .on(t.purchaseNumber)
+      .where(sql`${t.purchaseNumber} IS NOT NULL`),
+    check(
+      "purchases_amounts_chk",
+      sql`${t.subtotalP} >= 0 AND ${t.discountAmountP} >= 0 AND ${t.taxP} >= 0 AND ${t.freightP} >= 0 AND ${t.loadingP} >= 0 AND ${t.otherChargesP} >= 0 AND ${t.totalQtyMilli} >= 0 AND ${t.orderedQtyMilli} >= 0 AND ${t.receivedQtyMilli} >= 0 AND ${t.lineCount} >= 0`,
+    ),
+  ],
+);
+
+/**
+ * One line of a purchase, as it was on the day. Modelled on `invoice_items`, with two differences: the godown is per LINE, and the
+ * bags ORDERED (`qty_milli`) and RECEIVED (`received_qty_milli`) are separate. Lines are not append-only: an edit (S12) updates them
+ * in place because their ids stay stable (supplier returns and landed-cost entries point at them).
+ *
+ * Who writes the cost columns: S12's purchase save writes `goods_unit_cost_p`, `charge_share_p` and `landed_unit_cost_p`
+ * (`allocateCharges` in @farooq/shared); the landed-cost module (M6) writes `operational_share_p` (the sum of the line's
+ * non-cancelled landed-cost adjustments) and folds it into `landed_unit_cost_p`. NULL = never computed.
+ */
+export const purchaseItems = pgTable(
+  "purchase_items",
+  {
+    id: id(),
+    legacyId: legacyId(),
+    purchaseId: uuid("purchase_id")
+      .notNull()
+      .references(() => purchases.id),
+    sortOrder: integer("sort_order").notNull().default(0),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id),
+    warehouseId: uuid("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id),
+    descriptionSnapshot: text("description_snapshot"),
+    descriptionEnSnapshot: text("description_en_snapshot"),
+    brandSnapshot: text("brand_snapshot"),
+    packageSnapshot: text("package_snapshot"),
+    unit: text("unit").notNull().default("Bag"),
+    /** The bags ORDERED, thousandths; always > 0. */
+    qtyMilli: bigint("qty_milli", { mode: "number" }).notNull(),
+    /** The bags that ARRIVED, thousandths. The legacy `receivedQty` is absent on old lines = the whole quantity; the importer stores the
+     *  resolved number and keeps the raw one in legacy_doc. Not capped at the ordered bags: the legacy allowed raising "ordered" on a full load. */
+    receivedQtyMilli: bigint("received_qty_milli", { mode: "number" }).notNull().default(0),
+    /** Filled by supplier returns (M5). */
+    returnedQtyMilli: bigint("returned_qty_milli", { mode: "number" }).notNull().default(0),
+    unitPriceP: bigint("unit_price_p", { mode: "number" }).notNull(),
+    discountP: moneyP("discount_p"),
+    taxP: moneyP("tax_p"),
+    /** gross - discount + tax, as the legacy stored it; reconciliation recomputes it. */
+    lineTotalP: bigint("line_total_p", { mode: "number" }).notNull(),
+    goodsUnitCostP: bigint("goods_unit_cost_p", { mode: "number" }),
+    chargeShareP: bigint("charge_share_p", { mode: "number" }),
+    landedUnitCostP: bigint("landed_unit_cost_p", { mode: "number" }),
+    operationalShareP: bigint("operational_share_p", { mode: "number" }),
+    batchNo: text("batch_no"),
+    notes: text("notes"),
+    legacyDoc: legacyDoc(),
+  },
+  (t) => [
+    index("purchase_items_purchase_idx").on(t.purchaseId, t.sortOrder),
+    index("purchase_items_product_idx").on(t.productId, t.warehouseId),
+    check("purchase_items_qty_chk", sql`${t.qtyMilli} > 0 AND ${t.receivedQtyMilli} >= 0 AND ${t.returnedQtyMilli} >= 0`),
+    check("purchase_items_money_chk", sql`${t.unitPriceP} >= 0 AND ${t.discountP} >= 0 AND ${t.taxP} >= 0 AND ${t.lineTotalP} >= 0`),
+    // Fix 2: a line discount cannot exceed the line's gross (same integer form as invoice_items_discount_chk).
+    check("purchase_items_discount_chk", sql`1000 * ${t.discountP} <= ${t.unitPriceP} * ${t.qtyMilli} + 500`),
   ],
 );
 

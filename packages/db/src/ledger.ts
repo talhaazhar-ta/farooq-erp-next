@@ -134,6 +134,27 @@ export const invoiceCancelMemo = (invoiceNumber: string | null | undefined): str
 /** Whether an invoice with this status is in the ledger (legacy `Ledger`: everything except DRAFT and CANCELLED). */
 export const invoicePosts = (status: string): boolean => status !== "DRAFT" && status !== "CANCELLED";
 
+/* ── supplier purchases (S11) ───────────────────────────────────────────────
+   One entry per purchase that is in the ledger, `source_type` PURCHASE, `source_id` = the purchase id. The legacy Ledger counts
+   every purchase that is not CANCELLED - a DRAFT (and an ORDERED one, nothing received yet) DOES post. Until M4 there is no
+   inventory journal: the bill is DR PURCHASES / CR PAYABLES(supplier) for the grand total, and nothing else. */
+
+export const PURCHASE_SOURCE = "PURCHASE";
+
+/** DR PURCHASES / CR PAYABLES(supplier), for the purchase's grand total; a negative total swaps the sides (the same signed effect). */
+export function purchaseLines(supplierId: string, totalP: number): JournalLineDraft[] {
+  const abs = Math.abs(totalP);
+  return totalP >= 0 ? [plainLine("PURCHASES", abs, 0), supLine(supplierId, 0, abs)] : [supLine(supplierId, abs, 0), plainLine("PURCHASES", 0, abs)];
+}
+
+/** Journal memo of a purchase ("Purchase PUR-2026-000001"); a numberless one is just "Purchase". */
+export function purchaseMemo(purchaseNumber: string | null | undefined): string {
+  return `Purchase ${purchaseNumber ?? ""}`.trim();
+}
+
+/** Whether a purchase with this status is in the ledger (legacy `Ledger`: everything except CANCELLED - DRAFT counts). */
+export const purchasePosts = (status: string): boolean => status !== "CANCELLED";
+
 /** Resolves control-account codes to ids (`accounts.code` is unique). Throws if the database was not migrated. */
 export async function loadAccountIds(tx: Tx): Promise<Map<AccountCode, string>> {
   const rows = await tx.select({ id: accounts.id, code: accounts.code }).from(accounts);

@@ -19,6 +19,7 @@ const {
   paymentAllocations,
   payments,
   products,
+  purchaseItems,
   purchases,
   regions,
   returns,
@@ -64,13 +65,15 @@ export interface ImportResult {
   journalLines: number;
   /** Numbers of the invoices made by the old app's data migration (stock taken without SALE_OUT movements). */
   migratedInvoices: string[];
+  /** Numbers of the purchases the old app's data migration made. */
+  migratedPurchases: string[];
   warnings: string[];
 }
 
 /** Tables the importer owns and wipes. `users`, `sessions`, `role_permissions`, `audit_log` and `accounts` are never touched. */
 export const WIPED_TABLES = [
   "journal_lines", "journal_entries", "payment_allocations", "returns", "payments", "account_adjustments",
-  "milling_jobs", "stock_movements", "stock_levels", "invoice_items", "invoices", "purchases", "customers", "suppliers", "products", "warehouses", "regions", "sequences",
+  "milling_jobs", "stock_movements", "stock_levels", "invoice_items", "invoices", "purchase_items", "purchases", "customers", "suppliers", "products", "warehouses", "regions", "sequences",
   "company_profile", "request_keys", // request_keys (S7) points at invoice ids that this import replaces
 ] as const;
 
@@ -91,11 +94,11 @@ export async function runImport(backup: unknown, opts: ImportOptions): Promise<I
   try {
     const db = drizzle(client, { schema });
 
-    // The newest table the importer writes (migration 0005): if it is missing, the database is behind the code.
+    // The newest table the importer writes (migration 0008): if it is missing, the database is behind the code.
     const present = await client`
-      SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'stock_levels'`;
+      SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'purchase_items'`;
     if (present.length === 0) {
-      throw new ImportError("The database is not migrated to the S6 schema (migration 0005) — run `pnpm --filter @farooq/api db:migrate` first.");
+      throw new ImportError("The database is not migrated to the S11 schema (migration 0008) — run `pnpm --filter @farooq/api db:migrate` first.");
     }
 
     return await db.transaction(async (tx) => {
@@ -117,6 +120,7 @@ export async function runImport(backup: unknown, opts: ImportOptions): Promise<I
       await insertChunked(r.stockLevels, 500, (c) => tx.insert(stockLevels).values(c));
       await insertChunked(r.stockMovements, 300, (c) => tx.insert(stockMovements).values(c));
       await insertChunked(r.purchases, 200, (c) => tx.insert(purchases).values(c));
+      await insertChunked(r.purchaseItems, 200, (c) => tx.insert(purchaseItems).values(c));
       await insertChunked(r.payments, 200, (c) => tx.insert(payments).values(c));
       await insertChunked(r.paymentAllocations, 500, (c) => tx.insert(paymentAllocations).values(c));
       await insertChunked(r.returns, 200, (c) => tx.insert(returns).values(c));
@@ -160,6 +164,7 @@ export async function runImport(backup: unknown, opts: ImportOptions): Promise<I
         stock_levels: r.stockLevels.length,
         stock_movements: r.stockMovements.length,
         purchases: r.purchases.length,
+        purchase_items: r.purchaseItems.length,
         payments: r.payments.length,
         payment_allocations: r.paymentAllocations.length,
         returns: r.returns.length,
@@ -179,6 +184,7 @@ export async function runImport(backup: unknown, opts: ImportOptions): Promise<I
           journalEntries: prepared.journal.length,
           journalLines: lines.length,
           migratedInvoices: prepared.migratedInvoices,
+          migratedPurchases: prepared.migratedPurchases,
           storeCounts: prepared.storeCounts,
         },
       });
@@ -191,6 +197,7 @@ export async function runImport(backup: unknown, opts: ImportOptions): Promise<I
         journalEntries: prepared.journal.length,
         journalLines: lines.length,
         migratedInvoices: prepared.migratedInvoices,
+        migratedPurchases: prepared.migratedPurchases,
         warnings: prepared.warnings,
       };
     });

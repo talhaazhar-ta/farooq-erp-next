@@ -247,6 +247,11 @@ export function buildSyntheticInvoices(opts: SyntheticInvoiceOptions = {}): Back
   data.customerReturns = returns;
   data.stockMovements = stockMovements;
   data.inventory = inventory;
+  // the fixture's purchase lines and landed-cost rows point at the fixture's products, which this backup replaces: its purchases are header-only (listed as "no lines" by the reconciliation)
+  data.purchaseItems = [];
+  data.landedCosts = [];
+  data.landedCostExpenses = [];
+  data.inventoryCostAdjust = [];
   data.sequences = [
     { k: "INV:2026", kind: "INV", year: 2026, n: counters.INV, updatedAt: "2026-09-20T09:00:00.000Z" },
     { k: "REC:2026", kind: "REC", year: 2026, n: counters.REC, updatedAt: "2026-09-20T09:00:00.000Z" },

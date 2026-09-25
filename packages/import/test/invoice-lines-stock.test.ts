@@ -155,23 +155,25 @@ describe("product catalogue + the Prices panel (legacy Prices.of)", () => {
 });
 
 describe("stock levels and movements", () => {
-  it("the four legacy inventory rows become 4 stock rows + 1 damaged row with the hand-computed quantities (thousandths) and carried costs", async () => {
+  it("the six legacy inventory rows become 6 stock rows + 1 damaged row with the hand-computed quantities (thousandths) and carried costs", async () => {
     const rows = await sql`
       SELECT p.legacy_id AS p, w.legacy_id AS w, l.bucket, l.qty_milli::text AS qty, l.avg_cost_p::text AS avg, l.last_cost_p::text AS last
       FROM stock_levels l JOIN products p ON p.id = l.product_id JOIN warehouses w ON w.id = l.warehouse_id ORDER BY p.legacy_id, w.legacy_id, l.bucket`;
     expect(rows.map((r) => [r.p, r.w, r.bucket, r.qty, r.avg, r.last])).toEqual([
       ["p-1", "wh-1", "damaged", "600", "0", "0"], //    0.6 bag came back damaged (cr-1)
-      ["p-1", "wh-1", "stock", "90500", "79000", "75000"], // 100 - 10 - 2.5 - 4 + 12 - 12 + 12 - 5
-      ["p-1", "wh-2", "stock", "32000", "80000", "0"], //    30 - 3 + 5
-      ["p-2", "wh-1", "stock", "52000", "85000", "85000"], // 60 - 4 + 4 - 4 - 2 + 2 - 2 - 2
+      ["p-1", "wh-1", "stock", "90500", "64286", "64286"], // 100 - 10 - 2.5 - 4 + 12 - 12 + 12 - 5; average from pur-1's first line (S11)
+      ["p-1", "wh-2", "stock", "32000", "80000", "0"], //    30 - 3 + 5; no purchase line behind its average: kept from before
+      ["p-2", "wh-1", "stock", "52000", "85000", "85000"], // 60 - 4 + 4 - 4 - 2 + 2 - 2 - 2 (+ 6 - 6 of the cancelled pur-3); kept from before
+      ["p-2", "wh-2", "stock", "3000", "45857", "45857"], //  3 - 3 + 3 (pur-1's second line, landed cost included)
       ["p-3", "wh-1", "stock", "38000", "0", "0"], //        40 - 3 + 3 - 2  (the migrated invoice's 5 bags were never a movement)
+      ["p-3", "wh-2", "stock", "60000", "1667", "1667"], //  60 of pur-4's 100 ordered bags (the legacy goods unit round(100,000 / 60))
     ]);
   });
 
-  it("stores 24 movements with their kinds, and links each to its document: invoices and purchases by id, other types by name only", async () => {
+  it("stores 30 movements with their kinds, and links each to its document: invoices and purchases by id, other types by name only", async () => {
     const byKind = await sql`SELECT kind, count(*)::int AS n FROM stock_movements GROUP BY kind ORDER BY kind`;
     expect(byKind.map((r) => [r.kind, r.n])).toEqual([
-      ["ADJUSTMENT_IN", 3], ["CUSTOMER_RETURN_DAMAGED_IN", 1], ["OPENING_STOCK", 1], ["PURCHASE_IN", 2], ["PURCHASE_REVERSAL_OUT", 1],
+      ["ADJUSTMENT_IN", 3], ["CUSTOMER_RETURN_DAMAGED_IN", 1], ["OPENING_STOCK", 1], ["PURCHASE_IN", 6], ["PURCHASE_REVERSAL_OUT", 3],
       ["SALE_OUT", 11], ["SALE_REVERSAL_IN", 3], ["TRANSFER_IN", 1], ["TRANSFER_OUT", 1],
     ]);
     const sources = await sql`
@@ -185,8 +187,8 @@ describe("stock levels and movements", () => {
       ["INVOICE", "INVOICE", 11, 11, 0],
       ["INVOICE_CANCEL", "INVOICE", 1, 1, 0],
       ["INVOICE_EDIT", "INVOICE", 2, 2, 0],
-      ["PURCHASE", "PURCHASE", 2, 2, 0],
-      ["PURCHASE_EDIT", "PURCHASE", 1, 1, 0],
+      ["PURCHASE", "PURCHASE", 6, 6, 0],
+      ["PURCHASE_EDIT", "PURCHASE", 3, 3, 0],
       ["STOCK_RECEIPT", "STOCK_RECEIPT", 4, 0, 0],
       ["TRANSFER", "TRANSFER", 2, 0, 0],
     ]);
@@ -201,7 +203,7 @@ describe("stock levels and movements", () => {
 
   it("a legacy unit cost of 0 means 'none recorded' (null); a real one is kept; the user name stays in legacy_doc, created_by is empty", async () => {
     const [z] = await sql`SELECT count(*) FILTER (WHERE unit_cost_p IS NULL)::int AS nulls, count(*) FILTER (WHERE unit_cost_p > 0)::int AS costed, count(created_by)::int AS by FROM stock_movements`;
-    expect(z).toEqual({ nulls: 19, costed: 5, by: 0 });
+    expect(z).toEqual({ nulls: 21, costed: 9, by: 0 });
     const [u] = await sql`SELECT legacy_doc->>'userId' AS u, date::text AS d, created_at FROM stock_movements WHERE legacy_id = 'mv-5'`;
     expect(u!.u).toBe("Fixture");
     expect(u!.d).toBe("2026-02-01");
@@ -229,8 +231,8 @@ describe("reconciliation of invoice totals and stock (the hand-computed numbers)
     });
   });
 
-  it("stock: 5 rows, 24 movements, 212.5 bags + 0.6 damaged, legacy = level = sum of movements, no broken running-balance chain", () => {
-    expect(report.stock).toEqual({ rows: 5, movements: 24, stockQtyMilli: 212_500, damagedQtyMilli: 600, mismatches: [], chainGaps: 0 });
+  it("stock: 7 rows, 30 movements, 275.5 bags + 0.6 damaged, legacy = level = sum of movements, no broken running-balance chain", () => {
+    expect(report.stock).toEqual({ rows: 7, movements: 30, stockQtyMilli: 275_500, damagedQtyMilli: 600, mismatches: [], chainGaps: 0 });
   });
 
   it("invoice <-> stock: 7 invoices checked (the migrated one skipped), 14 movements, every edit / cancel nets out", () => {
@@ -246,7 +248,7 @@ describe("reconciliation of invoice totals and stock (the hand-computed numbers)
   it("the printed report says the real numbers", () => {
     const text = formatReport(report);
     expect(text).toContain("7 checked (totals recomputed from 10 lines, 36.5 bags), 0 total mismatch(es); 1 draft(s) not checked");
-    expect(text).toContain("5 product x warehouse x bucket rows, 24 movements, 212.5 bags in stock + 0.6 damaged; 0 mismatch(es)");
+    expect(text).toContain("7 product x warehouse x bucket rows, 30 movements, 275.5 bags in stock + 0.6 damaged; 0 mismatch(es)");
     expect(text).toContain("7 invoices vs 14 invoice movements, 0 mismatch(es); 1 migrated invoice(s) skipped");
     expect(text).toContain("INV-2026-000006");
   });
@@ -298,14 +300,14 @@ describe("what the database itself enforces", () => {
   it("stock_movements is append-only for the application role: it may read and insert, never update or delete (like audit_log); stock_levels stays writable", async () => {
     const app = postgres(TEST_APP_URL, { max: 1, onnotice: () => undefined });
     try {
-      expect((await app`SELECT count(*)::int AS n FROM stock_movements`)[0]!.n).toBe(24);
+      expect((await app`SELECT count(*)::int AS n FROM stock_movements`)[0]!.n).toBe(30);
       await expect(app`UPDATE stock_movements SET note = 'tampered'`).rejects.toMatchObject({ code: "42501" });
       await expect(app`DELETE FROM stock_movements`).rejects.toMatchObject({ code: "42501" });
       const [k] = await sql`SELECT p.id AS prod, w.id AS wh FROM products p, warehouses w WHERE p.legacy_id = 'p-3' AND w.legacy_id = 'wh-1'`;
       await app`INSERT INTO stock_movements (date, product_id, warehouse_id, kind, qty_delta_milli) VALUES ('2026-03-01', ${k!.prod}, ${k!.wh}, 'ADJUSTMENT_IN', 1000)`;
       await sql`DELETE FROM stock_movements WHERE legacy_id IS NULL`; // (the admin role cleans up after the test)
       await app`UPDATE stock_levels SET qty_milli = qty_milli WHERE false`; // the services need to update levels: allowed
-      expect((await app`SELECT count(*)::int AS n FROM stock_movements`)[0]!.n).toBe(24);
+      expect((await app`SELECT count(*)::int AS n FROM stock_movements`)[0]!.n).toBe(30);
     } finally {
       await app.end();
     }

@@ -9,6 +9,7 @@ import type {
   paymentAllocations,
   payments,
   products,
+  purchaseItems,
   purchases,
   regions,
   returns,
@@ -31,6 +32,10 @@ import {
   paymentMemo,
   paymentReversalMemo,
   plainLine as plain,
+  purchaseLines,
+  purchaseMemo,
+  purchasePosts,
+  PURCHASE_SOURCE,
   reversedLines,
   supLine,
   PAYMENT_REVERSAL_SOURCE,
@@ -110,6 +115,7 @@ export interface Prepared {
     stockLevels: (typeof stockLevels.$inferInsert)[];
     stockMovements: (typeof stockMovements.$inferInsert)[];
     purchases: (typeof purchases.$inferInsert)[];
+    purchaseItems: (typeof purchaseItems.$inferInsert)[];
     payments: (typeof payments.$inferInsert)[];
     paymentAllocations: (typeof paymentAllocations.$inferInsert)[];
     returns: (typeof returns.$inferInsert)[];
@@ -121,6 +127,8 @@ export interface Prepared {
   journal: JournalDraft[];
   /** Numbers of the invoices the old app's data migration made (`migrated: true`): stock taken without SALE_OUT movements. */
   migratedInvoices: string[];
+  /** Numbers of the purchases the old app's data migration made (`migrated: true`; 02-services.js ~2216). */
+  migratedPurchases: string[];
   /** Non-fatal observations (e.g. a REFUND return with no matching cash payment). */
   warnings: string[];
 }
@@ -223,6 +231,7 @@ export function prepareImport(raw: unknown): Prepared {
     stockLevels: [],
     stockMovements: [],
     purchases: [],
+    purchaseItems: [],
     payments: [],
     paymentAllocations: [],
     returns: [],
@@ -450,6 +459,8 @@ export function prepareImport(raw: unknown): Prepared {
     }
   }
 
+  const purchaseNumbers = new Map<string, string>(); // purchase number -> legacy id (a number identifies one purchase)
+  const migratedPurchases: string[] = [];
   for (const d of data.purchases ?? []) {
     const id = register("purchases", purchaseIds, d);
     const supplierId = resolve("purchases", d, "supplierId", "supplier", supplierIds);
@@ -458,9 +469,53 @@ export function prepareImport(raw: unknown): Prepared {
     const status = oneOf("purchases", d, "status", ALLOWED_STATUS.purchases);
     const createdAt = optTimestamp("purchases", d, "createdAt");
     const number = optStr("purchases", d, "purchaseNumber");
-    rows.purchases.push({ id, legacyId: d.id, purchaseNumber: number, supplierId, date, totalP, status, ...(createdAt ? { createdAt } : {}), legacyDoc: d });
-    if (status !== "CANCELLED") {
-      post("PURCHASE", id, date, `Purchase ${number ?? ""}`.trim(), createdAt, payableLines(supplierId, "PURCHASES", totalP));
+    if (number !== null) {
+      const clash = purchaseNumbers.get(number);
+      if (clash) throw new ImportError(`${where("purchases", d)}.purchaseNumber: ${number} is already the number of purchase ${clash} — a number identifies one purchase`);
+      purchaseNumbers.set(number, d.id);
+    }
+    const warehouseKey = optStr("purchases", d, "warehouseId");
+    const updatedAt = optTimestamp("purchases", d, "updatedAt");
+    const migrated = optBool("purchases", d, "migrated", false);
+    if (migrated) migratedPurchases.push(number ?? d.id);
+    rows.purchases.push({
+      id,
+      legacyId: d.id,
+      purchaseNumber: number,
+      supplierId,
+      date,
+      totalP,
+      status,
+      ...(createdAt ? { createdAt } : {}),
+      supplierNameSnapshot: optStr("purchases", d, "supplierNameSnapshot"),
+      supplierInvoiceNo: optStr("purchases", d, "supplierInvoiceNo"),
+      warehouseId: warehouseKey ? resolve("purchases", d, "warehouseId", "warehouse", warehouseIds) : null,
+      warehouseSnapshot: optStr("purchases", d, "warehouseSnapshot"),
+      vehicleNo: optStr("purchases", d, "vehicleNo"),
+      driver: optStr("purchases", d, "driver"),
+      deliveryRef: optStr("purchases", d, "deliveryRef"),
+      subtotalP: paisa("purchases", d, "subtotal", { optional: true }),
+      discountAmountP: paisa("purchases", d, "discountAmount", { optional: true }),
+      taxP: paisa("purchases", d, "taxAmount", { optional: true }),
+      freightP: paisa("purchases", d, "freightAmount", { optional: true }),
+      loadingP: paisa("purchases", d, "loadingAmount", { optional: true }),
+      otherChargesP: paisa("purchases", d, "otherCharges", { optional: true }),
+      totalQtyMilli: qtyMilli("purchases", d, "totalQty", { optional: true }),
+      orderedQtyMilli: qtyMilli("purchases", d, "orderedQty", { optional: true }),
+      receivedQtyMilli: qtyMilli("purchases", d, "receivedQty", { optional: true }),
+      lineCount: d.lineCount === undefined || d.lineCount === null ? 0 : integer("purchases", d, "lineCount"),
+      notes: optStr("purchases", d, "notes"),
+      description: optStr("purchases", d, "description"),
+      stockApplied: optBool("purchases", d, "stockApplied", false),
+      migrated,
+      revision: d.revision === undefined || d.revision === null ? 0 : integer("purchases", d, "revision"),
+      ...(updatedAt ? { updatedAt } : {}),
+      clientOpId: optStr("purchases", d, "clientOpId"),
+      legacyDoc: d,
+    });
+    // Everything except CANCELLED is in the ledger (a DRAFT counts); the posting shape is the shared builder's, the one S12 will use.
+    if (purchasePosts(status)) {
+      post(PURCHASE_SOURCE, id, date, purchaseMemo(number), createdAt, purchaseLines(supplierId, totalP));
     }
   }
 
@@ -503,6 +558,59 @@ export function prepareImport(raw: unknown): Prepared {
       returnedQtyMilli,
       batchNo: optStr("invoiceItems", d, "batchNo"),
       notes: optStr("invoiceItems", d, "notes"),
+      legacyDoc: d,
+    });
+  }
+
+  /* ── purchase lines (S11) ────────────────────────────────────────────── */
+
+  // The header's godown is only a default: the legacy stores the godown on every line, and stock moves in that one.
+  const headerWarehouse = new Map<string, string | null>((data.purchases ?? []).map((p) => [p.id, typeof p.warehouseId === "string" && p.warehouseId ? p.warehouseId : null]));
+  const purchaseItemIds: Ids = new Map();
+  for (const d of data.purchaseItems ?? []) {
+    const id = register("purchaseItems", purchaseItemIds, d);
+    const purchaseId = resolve("purchaseItems", d, "purchaseId", "purchase", purchaseIds); // a line on a purchase that is not in the backup aborts
+    const productId = resolve("purchaseItems", d, "productId", "product", productIds);
+    const lineWarehouse = d.warehouseId === undefined || d.warehouseId === null || d.warehouseId === "" ? headerWarehouse.get(d.purchaseId) : d.warehouseId;
+    if (!lineWarehouse) throw new ImportError(`${where("purchaseItems", d)}.warehouseId: the line has no godown and neither has its purchase`);
+    const warehouseId = resolve("purchaseItems", { ...d, warehouseId: lineWarehouse }, "warehouseId", "warehouse", warehouseIds);
+    const qty = qtyMilli("purchaseItems", d, "quantity", { sign: "positive" });
+    // `orderedQty` is always the same figure as `quantity` in what the legacy writes; a line where they differ is not understood, so it aborts.
+    if (d.orderedQty !== undefined && d.orderedQty !== null && qtyMilli("purchaseItems", d, "orderedQty") !== qty) {
+      throw new ImportError(`${where("purchaseItems", d)}.orderedQty: ${d.orderedQty} differs from the quantity ${d.quantity} — the legacy always writes the same figure in both`);
+    }
+    // receivedQty ABSENT = the whole line arrived (`receivedQty === undefined ? quantity : receivedQty` all through the legacy); 0 = nothing arrived.
+    const received = d.receivedQty === undefined ? qty : qtyMilli("purchaseItems", d, "receivedQty");
+    const unitPriceP = paisa("purchaseItems", d, "unitPrice");
+    const discountP = paisa("purchaseItems", d, "discount", { optional: true });
+    if (1000 * discountP > unitPriceP * qty + 500) {
+      throw new ImportError(`${where("purchaseItems", d)}.discount: ${discountP} paisa is more than the line's gross (${unitPriceP} paisa x ${qty / 1000})`);
+    }
+    rows.purchaseItems.push({
+      id,
+      legacyId: d.id,
+      purchaseId,
+      sortOrder: d.sortOrder === undefined || d.sortOrder === null ? 0 : integer("purchaseItems", d, "sortOrder"),
+      productId,
+      warehouseId,
+      descriptionSnapshot: optStr("purchaseItems", d, "descriptionSnapshot"),
+      descriptionEnSnapshot: optStr("purchaseItems", d, "descriptionEnSnapshot"),
+      brandSnapshot: optStr("purchaseItems", d, "brandSnapshot"),
+      packageSnapshot: optStr("purchaseItems", d, "packageSnapshot"),
+      unit: optStr("purchaseItems", d, "unit") ?? "Bag",
+      qtyMilli: qty,
+      receivedQtyMilli: received,
+      returnedQtyMilli: qtyMilli("purchaseItems", d, "returnedQty", { optional: true }),
+      unitPriceP,
+      discountP,
+      taxP: paisa("purchaseItems", d, "tax", { optional: true }),
+      lineTotalP: paisa("purchaseItems", d, "lineTotal"),
+      goodsUnitCostP: optPaisa("purchaseItems", d, "goodsUnitCost"),
+      chargeShareP: optPaisa("purchaseItems", d, "chargeShare"),
+      landedUnitCostP: optPaisa("purchaseItems", d, "landedUnitCost"),
+      operationalShareP: optPaisa("purchaseItems", d, "operationalShare"),
+      batchNo: optStr("purchaseItems", d, "batchNo"),
+      notes: optStr("purchaseItems", d, "notes"),
       legacyDoc: d,
     });
   }
@@ -780,5 +888,5 @@ export function prepareImport(raw: unknown): Prepared {
     rows.sequences.push({ kind, year, n, ...(updatedAt ? { updatedAt } : {}) });
   }
 
-  return { exportedAt: backup.exportedAt, storeCounts, rows, journal, migratedInvoices, warnings };
+  return { exportedAt: backup.exportedAt, storeCounts, rows, journal, migratedInvoices, migratedPurchases, warnings };
 }

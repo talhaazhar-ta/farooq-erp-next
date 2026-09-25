@@ -131,7 +131,7 @@ describe("invoice totals: lines vs header", () => {
 
 describe("stock: legacy inventory = stock level = sum of movements", () => {
   it("a stock level that drifted names the product, warehouse and bucket, with all three numbers", async () => {
-    await sql`UPDATE stock_levels SET qty_milli = qty_milli + 1000 WHERE product_id = (SELECT id FROM products WHERE legacy_id = 'p-2')`;
+    await sql`UPDATE stock_levels SET qty_milli = qty_milli + 1000 WHERE product_id = (SELECT id FROM products WHERE legacy_id = 'p-2') AND warehouse_id = (SELECT id FROM warehouses WHERE legacy_id = 'wh-1')`;
     const r = await check();
     red(r);
     expect(r.stock.mismatches).toEqual([{ product: "p-2", warehouse: "wh-1", bucket: "stock", legacyMilli: 52_000, levelMilli: 53_000, movementsMilli: 52_000 }]);
@@ -155,7 +155,7 @@ describe("stock: legacy inventory = stock level = sum of movements", () => {
     red(r);
     expect(r.stock.mismatches).toEqual([{ product: "p-3", warehouse: "wh-1", bucket: "stock", legacyMilli: 38_000, levelMilli: 38_000, movementsMilli: 43_000 }]);
     expect(r.invoiceStock.mismatches).toEqual([]); // not an invoice movement
-    expect(r.counts.find((c) => c.store === "stockMovements")).toMatchObject({ backup: 24, loaded: 25, match: false }); // and the row count no longer matches
+    expect(r.counts.find((c) => c.store === "stockMovements")).toMatchObject({ backup: 30, loaded: 31, match: false }); // and the row count no longer matches
   });
 
   it("the damaged bucket is checked separately from the sellable one", async () => {
@@ -166,16 +166,16 @@ describe("stock: legacy inventory = stock level = sum of movements", () => {
   });
 
   it("a missing stock level row is a mismatch (legacy 38 bags, level 0), and the store count fails too", async () => {
-    await sql`DELETE FROM stock_levels WHERE product_id = (SELECT id FROM products WHERE legacy_id = 'p-3')`;
+    await sql`DELETE FROM stock_levels WHERE product_id = (SELECT id FROM products WHERE legacy_id = 'p-3') AND warehouse_id = (SELECT id FROM warehouses WHERE legacy_id = 'wh-1')`;
     const r = await check();
     red(r);
     expect(r.stock.mismatches).toEqual([{ product: "p-3", warehouse: "wh-1", bucket: "stock", legacyMilli: 38_000, levelMilli: 0, movementsMilli: 38_000 }]);
-    expect(r.counts.find((c) => c.store === "inventory")).toMatchObject({ backup: 4, loaded: 3, match: false });
+    expect(r.counts.find((c) => c.store === "inventory")).toMatchObject({ backup: 6, loaded: 5, match: false });
   });
 
   it("a level that agrees with the movements but NOT with the legacy inventory is caught (the legacy figure is the third witness)", async () => {
     // move the level and a movement together, so level = sum of movements; only the legacy inventory row disagrees
-    await sql`UPDATE stock_levels SET qty_milli = qty_milli + 500 WHERE product_id = (SELECT id FROM products WHERE legacy_id = 'p-3')`;
+    await sql`UPDATE stock_levels SET qty_milli = qty_milli + 500 WHERE product_id = (SELECT id FROM products WHERE legacy_id = 'p-3') AND warehouse_id = (SELECT id FROM warehouses WHERE legacy_id = 'wh-1')`;
     await sql`UPDATE stock_movements SET qty_delta_milli = qty_delta_milli + 500 WHERE legacy_id = 'mv-3'`;
     const r = await check();
     red(r);

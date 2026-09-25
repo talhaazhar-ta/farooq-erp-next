@@ -57,6 +57,13 @@
       "when": 1790241682860,
       "tag": "0007_s8_invoice_search",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790306728149,
+      "tag": "0008_s11_purchase_lines",
+      "breakpoints": true
     }
   ]
 }

@@ -23,7 +23,9 @@ export const IMPORTED_STORES = {
   invoiceItems: "invoice lines (S6): what was sold, at what price, out of which warehouse; reconciliation recomputes every invoice total from them",
   inventory: "current stock per product x warehouse (S6) -> stock_levels; reconciliation proves it equals the sum of the movements",
   stockMovements: "the stock ledger (S6) -> stock_movements; append-only, every stock quantity is the sum of its movements",
-  purchases: "header only; feeds Ledger.supplier",
+  purchases: "full header (S11) + status; feeds Ledger.supplier",
+  purchaseItems:
+    "purchase lines (S11): what was bought, into which godown, how many bags were ORDERED / RECEIVED, the cost the legacy gave them; reconciliation recomputes every purchase total and every stored average cost from them",
   payments: "feeds both ledgers; S3 builds the payment services on these rows",
   paymentAllocations: "payment -> invoice/purchase allocations",
   customerReturns: "header only; feeds Ledger.customer (credit note)",
@@ -47,18 +49,17 @@ export type VerbatimStore = (typeof VERBATIM_STORES)[number];
 
 /** Stores counted but not loaded: they belong to a later milestone and do not feed either ledger. */
 export const DEFERRED_STORES = {
-  purchaseItems: "purchase line items — M3",
   customerReturnItems: "return line items — M5",
-  supplierReturnItems: "return line items — M3",
+  supplierReturnItems: "return line items — M5",
   stockDocs:
     "stock documents (receive / dispatch / transfer / adjust) — M4; their stock effect is already inside stockMovements, only the documents themselves wait",
   stockDocItems: "stock document lines — M4 (their stock effect is already inside stockMovements)",
   orders: "sales orders — M2",
   orderItems: "sales order lines — M2",
   expenses: "expenses — later milestone",
-  landedCosts: "landed cost — M6",
-  landedCostExpenses: "landed cost — M6",
-  inventoryCostAdjust: "stock costing — M4",
+  landedCosts: "landed cost entries — M6 (reconciliation READS them from the backup to prove each line's operational share; nothing is loaded)",
+  landedCostExpenses: "landed cost expenses — M6",
+  inventoryCostAdjust: "landed cost per purchase line — M6 (reconciliation READS them from the backup to prove each line's operational share; nothing is loaded)",
   employees: "payroll — M7",
   salaryPayments: "payroll — M7",
   millingJobItems: "milling job lines (stock side) — M8; the job headers are imported because they feed the ledger",
@@ -218,19 +219,27 @@ export const FIELD_CLASSES: Record<Exclude<ImportedStore, VerbatimStore>, FieldC
     ignored: [],
   },
   purchases: {
-    mapped: ["id", "purchaseNumber", "supplierId", "purchaseDate", "grandTotal", "status", "createdAt"],
-    docOnly: [
-      {
-        reason: "purchase detail — M3 (line items, snapshots, charges)",
-        keys: [
-          "clientOpId", "supplierNameSnapshot", "supplierInvoiceNo", "warehouseId", "warehouseSnapshot", "vehicleNo",
-          "driver", "deliveryRef", "subtotal", "discountAmount", "taxAmount", "freightAmount", "loadingAmount",
-          "otherCharges", "notes", "totalQty", "lineCount", "createdBy", "updatedAt", "stockApplied", "orderedQty",
-          "receivedQty", "revision", "description",
-        ],
-      },
+    mapped: [
+      "id", "purchaseNumber", "supplierId", "purchaseDate", "grandTotal", "status", "createdAt",
+      // the rest of the header (S11): the purchases.* columns of migration 0008
+      "clientOpId", "supplierNameSnapshot", "supplierInvoiceNo", "warehouseId", "warehouseSnapshot", "vehicleNo", "driver",
+      "deliveryRef", "subtotal", "discountAmount", "taxAmount", "freightAmount", "loadingAmount", "otherCharges", "notes",
+      "description", "totalQty", "orderedQty", "receivedQty", "lineCount", "stockApplied", "revision", "updatedAt",
+      "migrated", // only on purchases the old app's data migration made (02-services.js ~2216)
     ],
+    docOnly: [{ reason: "display name of the saver (purchases.created_by is a user id, null on imports)", keys: ["createdBy"] }],
     ignored: [{ reason: DERIVED_CACHE, keys: ["paidAmount", "balanceAmount", "paymentStatus"] }],
+  },
+  purchaseItems: {
+    mapped: [
+      "id", "purchaseId", "sortOrder", "productId", "warehouseId", "descriptionSnapshot", "descriptionEnSnapshot", "brandSnapshot",
+      "packageSnapshot", "unit", "quantity", "orderedQty", "receivedQty", "returnedQty", "unitPrice", "discount", "tax", "lineTotal",
+      "batchNo", "notes",
+      // what the legacy costed the line at (17-profit.js `Purchases.save` wrapper; `operationalShare` by 26-landed-cost.js): the purchase_items cost columns
+      "goodsUnitCost", "chargeShare", "landedUnitCost", "operationalShare",
+    ],
+    docOnly: [],
+    ignored: [],
   },
   payments: {
     mapped: [

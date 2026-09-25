@@ -22,7 +22,7 @@ let before: Awaited<ReturnType<typeof snapshot>>;
 beforeAll(async () => {
   await runImport(fixture(), IMPORT_OPTS);
   before = await snapshot();
-  expect(before).toMatchObject({ invoices: 8, items: 11, levels: 5, movements: 24 }); // a populated database, so "unchanged" is meaningful
+  expect(before).toMatchObject({ invoices: 8, items: 11, levels: 7, movements: 30 }); // a populated database, so "unchanged" is meaningful
 });
 afterAll(async () => {
   await sql.end();
@@ -107,7 +107,7 @@ describe("S6 fail loudly — aborts naming the store, the document and the field
 
   it("the guards are real: the same edits made to a COPY that is valid still import (a case above fails for its own reason, not for a broken fixture)", async () => {
     const ok = await runImport(mutate((b) => { b.data.products[1].sell = 10.5; item(b, "ii-inv-6-1").quantity = 2.5; }), IMPORT_OPTS);
-    expect(ok.loaded).toMatchObject({ invoice_items: 11, stock_levels: 5, stock_movements: 24 });
+    expect(ok.loaded).toMatchObject({ invoice_items: 11, stock_levels: 7, stock_movements: 30 });
     await runImport(fixture(), IMPORT_OPTS);
   });
 });
