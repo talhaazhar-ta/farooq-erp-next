@@ -441,3 +441,4 @@ Format: `YYYY-MM-DD` — commit `<hash>` in `projectFarooqAndCoTraders` — what
   checklist above, not logged individually.
 - 2026-09-24 — (no old-repo hash: found by the S6 importer, not logged by the old repo) the 2026-09-23 nightly has three fields the 2026-09-22 one lacked: `regions.updatedAt`,
   `customers.salesmanId`, `customers.limit` — the importer aborted on them as designed; now classified `docOnly` (kept in `legacy_doc`, unused) — master data (18-master-data.js).
+- 2026-09-25 — b2b0778 — Add-stock receipts (RECEIVE stock docs) are editable: `StockDocs.editReceive` reverses old lines as new movement kind `RECEIPT_EDIT_OUT` (at old cost; carriedCost + Stock value subtract it) and re-posts, same RCV number, net-change stock guard, gate STOCK_MANAGE|TRANSACTION_CORRECT; movement report "adjusted" now a signed net — inventory / stock docs / reports (07, 02, 37, 13, 05, 06, 09).
