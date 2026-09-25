@@ -92,4 +92,4 @@ Every screen. In particular a real phone (only a 390 px emulated viewport); a **
 
 ## CI
 
-S10 commit `d5e6ca5`: **green** — run 36023883386: build, typecheck, lint, test (1,109) and the Playwright job (165) all succeeded on the Linux runner (confirmed per step by the planning hub; the S10 session had ended while it was still running).
+S11 commit `f02a0ad`: **green** — run 36096072237 (build, typecheck, lint, test 1,201, Playwright 165) on the Linux runner. S11 ended before committing; the planning hub re-ran the full suite locally (exit 1 only from the flaky builder toast test, 16/16 on rerun), committed the work as the session left it and pushed. S10: run 36023883386 green.
