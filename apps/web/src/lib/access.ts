@@ -22,6 +22,12 @@ export const canCreateInvoice = (role: Role): boolean => roleHasAnyPermission(ro
  * a draft is edited by whoever may make a sale, a posted invoice by the corrector.
  */
 export const canOfferEdit = (role: Role, draft: boolean): boolean => (draft ? canCreateInvoice(role) : canCorrectInvoice(role));
+/**
+ * Who may read purchases (list, view, print, CSV) — the same set the API checks. The warehouse role and Sales hold none: the old ERP
+ * showed its Purchases page to every role, S13 keeps it closed because purchases carry supplier money (an owner-visible difference).
+ */
+export const PURCHASE_READ_PERMISSIONS: readonly Permission[] = ["PURCHASE_CREATE", "TRANSACTION_CORRECT", "FINANCIAL_REPORT_VIEW"];
+export const canReadPurchases = (role: Role): boolean => roleHasAnyPermission(role, PURCHASE_READ_PERMISSIONS);
 export const canSeeProfit = (role: Role): boolean => roleHasAnyPermission(role, ["PROFIT_VIEW"]);
 
 export const notAvailableTitle = (role: Role): string => `Not available for the ${ROLE_LABELS[role]} role`;
@@ -29,7 +35,7 @@ export const notAvailableTitle = (role: Role): string => `Not available for the 
 export interface NavItem {
   label: string;
   /** null = a module that does not exist yet: shown visibly disabled ("Soon"), never a dead link. */
-  to: "/" | "/payments" | "/invoices" | "/statements" | null;
+  to: "/" | "/payments" | "/invoices" | "/purchases" | "/statements" | null;
   /** Permissions of which the role needs at least one. Undefined = every signed-in role. */
   any?: readonly Permission[];
 }
@@ -37,6 +43,7 @@ export interface NavItem {
 export const NAV_ITEMS: readonly NavItem[] = [
   { label: "Dashboard", to: "/" },
   { label: "Invoices", to: "/invoices", any: INVOICE_READ_PERMISSIONS },
+  { label: "Purchases", to: "/purchases", any: PURCHASE_READ_PERMISSIONS },
   { label: "Payments", to: "/payments", any: PAYMENT_READ_PERMISSIONS },
   { label: "Statements", to: "/statements", any: PAYMENT_READ_PERMISSIONS },
   { label: "Customers", to: null },

@@ -1,11 +1,11 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { test as base, expect, type BrowserContext, type Page } from "@playwright/test";
-import type { InvoiceDetail, InvoiceListResponse, PaymentDetail, PaymentListResponse, PartyLookupItem, ProductPickItem, Role, Statement, WarehouseItem } from "@farooq/shared";
+import type { InvoiceDetail, InvoiceListResponse, PaymentDetail, PaymentListResponse, PartyLookupItem, ProductPickItem, PurchaseDetail, PurchaseListResponse, Role, Statement, WarehouseItem } from "@farooq/shared";
 import { ARTIFACTS_DIR, readState } from "../setup/env";
 
 export { expect };
-export { SCENARIO } from "../setup/dataset";
+export { PURCHASE_PRODUCTS, SCENARIO } from "../setup/dataset";
 export { ARTIFACTS_DIR };
 
 /* ── a signed-in browser page per role ───────────────────────────────────────────────────────── */
@@ -158,6 +158,37 @@ export async function postInvoice(
     ...(o.paidAmountP ? { paidAmountP: o.paidAmountP } : {}),
     idempotencyKey: `e2e-${Date.now()}-${++keyCounter}`,
   });
+}
+
+/* ── purchases (S13) ─────────────────────────────────────────────────────────────────────────── */
+
+export const purchasesList = (api: Api, q: string): Promise<PurchaseListResponse> => api.get(`/purchases?${q}`);
+export const purchaseDetailOf = (api: Api, id: string): Promise<PurchaseDetail> => api.get(`/purchases/${id}`);
+
+/** A product of the catalogue by its English name (the importer maps legacy ids to UUIDs). */
+export async function productByName(api: Api, en: string): Promise<ProductPickItem> {
+  const hit = (await api.get<ProductPickItem[]>(`/products?q=${encodeURIComponent(en)}&limit=20`)).find((p) => (p.nameEn ?? p.name) === en);
+  if (!hit) throw new Error(`No product named "${en}" — is the e2e dataset loaded?`);
+  return hit;
+}
+
+export interface PurchaseLineSpec {
+  productId: string;
+  quantity: number;
+  unitPriceP: number;
+  receivedQuantity?: number;
+  warehouseId?: string;
+  discountP?: number;
+}
+
+/** POST /purchases through the real API (the supplier and products must be the calling spec's own). Returns the saved purchase. */
+export async function postPurchase(
+  api: Api,
+  o: { supplierId: string; lines: PurchaseLineSpec[]; warehouseId?: string; date?: string; paidAmountP?: number; freightP?: number; loadingP?: number; supplierInvoiceNo?: string; vehicleNo?: string; driver?: string; notes?: string },
+): Promise<PurchaseDetail> {
+  const warehouseId = o.warehouseId ?? (await api.get<WarehouseItem[]>("/warehouses")).find((w) => w.active)!.id;
+  const { lines, ...rest } = o;
+  return api.postOk<PurchaseDetail>("/purchases", { ...rest, warehouseId, lines, idempotencyKey: `e2e-pur-${Date.now()}-${++keyCounter}` });
 }
 
 /* ── small helpers ───────────────────────────────────────────────────────────────────────────── */

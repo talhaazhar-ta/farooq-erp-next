@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useAuth } from "../lib/auth";
-import { canReadInvoices, canReadPayments, notAvailableTitle } from "../lib/access";
+import { canReadInvoices, canReadPayments, canReadPurchases, notAvailableTitle } from "../lib/access";
 import { NotAvailable } from "./ui";
 
 /** Renders its children only for a role that may read payments; anyone else gets the "not available" panel (never a blank page or a raw 403). */
@@ -19,6 +19,16 @@ export function RequireInvoicesAccess({ children }: { children: ReactNode }) {
   if (!user) return null;
   if (!canReadInvoices(user.role)) {
     return <NotAvailable title={notAvailableTitle(user.role)}>Invoices hold the shops’ sales and balances. Ask the owner, a manager, the accountant or a salesperson.</NotAvailable>;
+  }
+  return <>{children}</>;
+}
+
+/** Same for purchases: the warehouse role and Sales hold none of the permissions that read them. */
+export function RequirePurchasesAccess({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  if (!user) return null;
+  if (!canReadPurchases(user.role)) {
+    return <NotAvailable title={notAvailableTitle(user.role)}>Purchases hold what is owed to the suppliers. Ask the owner, a manager or the accountant.</NotAvailable>;
   }
   return <>{children}</>;
 }

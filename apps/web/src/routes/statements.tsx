@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useNavigate, useSearch } from "@tanstack/react-router";
-import { businessDateOf, formatPaisaPlain, rupeesText, type PartyLookupItem, type Statement } from "@farooq/shared";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import { businessDateOf, formatPaisaPlain, rupeesText, type PartyLookupItem, type Statement, type StatementRow } from "@farooq/shared";
 import { RequirePaymentsAccess } from "../components/guard";
 import { PartyCombobox } from "../components/party-combobox";
 import { Banner, Button, EmptyState, ErrorLines, inputClass, cn } from "../components/ui";
@@ -10,6 +10,8 @@ import { PERIOD_OPTIONS } from "../lib/periods";
 import { getCompany, getRegions, getStatement, keys } from "../lib/queries";
 import { statementSearchFrom, statementSearchOut, statementWindow, type StatementFilters } from "../lib/statement-filters";
 import { ApiError } from "../lib/api";
+import { canReadPurchases } from "../lib/access";
+import { useAuth } from "../lib/auth";
 
 export function StatementsPage() {
   return (
@@ -228,7 +230,9 @@ function StatementPaper({ s, kind, company }: { s: Statement; kind: PartyKind; c
                 s.rows.map((r, i) => (
                   <tr key={`${i}:${r.source.id}`} data-testid="statement-row">
                     <td className="whitespace-nowrap">{fmtDate(r.date)}</td>
-                    <td className="whitespace-nowrap font-mono text-xs">{r.ref}</td>
+                    <td className="whitespace-nowrap font-mono text-xs">
+                      <RefCell r={r} />
+                    </td>
                     <td dir="auto" data-testid="statement-description">{r.detail ?? r.description}</td>
                     <td className="num" data-testid="statement-qty">{r.qtyLabel}</td>
                     <td className="num">{r.debitP ? formatPaisaPlain(r.debitP) : ""}</td>
@@ -265,7 +269,9 @@ function StatementPaper({ s, kind, company }: { s: Statement; kind: PartyKind; c
                   <p dir="auto" className="text-left">{r.detail ?? r.description}</p>
                   {r.qtyLabel !== "—" ? <p className="muted text-xs">Qty {r.qtyLabel}</p> : null}
                   <div className="muted flex items-baseline justify-between gap-3 text-xs">
-                    <span className="font-mono">{r.ref}</span>
+                    <span className="font-mono">
+                      <RefCell r={r} />
+                    </span>
                     <span className="num">
                       {r.debitP ? `Debit ${formatPaisaPlain(r.debitP)}` : `Credit ${formatPaisaPlain(r.creditP)}`}
                     </span>
@@ -296,4 +302,17 @@ function StatementPaper({ s, kind, company }: { s: Statement; kind: PartyKind; c
       </article>
     </div>
   );
+}
+
+/** (S13) A purchase row's number opens the purchase for a role that may read purchases; every other ref is plain text (and prints as text). */
+function RefCell({ r }: { r: StatementRow }) {
+  const { user } = useAuth();
+  if (r.kind === "PURCHASE" && r.source.type === "PURCHASE" && user && canReadPurchases(user.role)) {
+    return (
+      <Link to="/purchases/$id" params={{ id: r.source.id }} className="text-(--color-primary) hover:underline print:text-inherit print:no-underline" data-testid="statement-purchase-link">
+        {r.ref}
+      </Link>
+    );
+  }
+  return <>{r.ref}</>;
 }

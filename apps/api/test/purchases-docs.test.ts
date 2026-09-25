@@ -111,7 +111,7 @@ describe("print model (legacy DocModel.purchase)", () => {
     expect(m.rows).toEqual([
       expect.objectContaining({ sr: 1, description: "Fixture p-3", brand: "Fixture", pack: "50 KG", ordered: "100", received: "60", orderedQuantity: 100, receivedQuantity: 60, godown: "Second Godown", rate: "10.00", amount: "1,000.00" }),
     ]);
-    expect(m.itemsFooter).toEqual({ description: "Total — 1 lines", ordered: "100", received: "60", amount: "1,000.00", amountP: 100_000 });
+    expect(m.itemsFooter).toEqual({ description: "Total — 1 line", ordered: "100", received: "60", amount: "1,000.00", amountP: 100_000 });
   });
 
   it("totals: subtotal, the charges that are not zero, grand total, paid by POSTED vouchers, payable; words; the voucher listed", async () => {
@@ -138,6 +138,10 @@ describe("print model (legacy DocModel.purchase)", () => {
     const c = await print("pur-3");
     expect(c.cancelled).toBe(true);
     expect(c.labels.ribbon).toBe("CANCELLED");
+    // not owed: no Paid / Payable rows, and the status says Cancelled (not "Unpaid")
+    expect(c.totals.map((t) => t.key)).toEqual(["subtotal", "grand"]);
+    expect(c.status).toBe("Cancelled");
+    expect(c.strip[0]).toEqual({ label: "Payment status", value: "Cancelled" });
   });
 
   it("the legacy wording (verbatim constants) and no cost key anywhere in the model", async () => {

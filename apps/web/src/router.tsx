@@ -10,7 +10,11 @@ import { InvoicesPage } from "./routes/invoices";
 import { InvoiceDetailPage } from "./routes/invoice-detail";
 import { InvoicePrintPage, templateFromSearch } from "./routes/invoice-print";
 import { InvoiceEditPage, InvoiceNewPage } from "./routes/invoice-builder";
+import { PurchasesPage } from "./routes/purchases";
+import { PurchaseDetailPage } from "./routes/purchase-detail";
+import { PurchasePrintPage } from "./routes/purchase-print";
 import { invoiceFiltersFromSearch, invoiceFiltersToSearch } from "./lib/invoice-filters";
+import { purchaseFiltersFromSearch, purchaseFiltersToSearch } from "./lib/purchase-filters";
 import { filtersFromSearch, filtersToSearch } from "./lib/payment-filters";
 import { statementSearchFrom, statementSearchOut } from "./lib/statement-filters";
 
@@ -84,6 +88,25 @@ const invoicePrintRoute = createRoute({
   component: InvoicePrintPage,
 });
 
+const purchasesRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: "/purchases",
+  validateSearch: (raw: Record<string, unknown>): Record<string, string> => purchaseFiltersToSearch(purchaseFiltersFromSearch(raw)),
+  component: PurchasesPage,
+});
+
+const purchaseDetailRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: "/purchases/$id",
+  component: PurchaseDetailPage,
+});
+
+const purchasePrintRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: "/purchases/$id/print",
+  component: PurchasePrintPage,
+});
+
 const statementsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/statements",
@@ -93,7 +116,7 @@ const statementsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   signInRoute,
-  shellRoute.addChildren([indexRoute, paymentsRoute, paymentDetailRoute, receiptRoute, invoicesRoute, invoiceNewRoute, invoiceDetailRoute, invoiceEditRoute, invoicePrintRoute, statementsRoute]),
+  shellRoute.addChildren([indexRoute, paymentsRoute, paymentDetailRoute, receiptRoute, invoicesRoute, invoiceNewRoute, invoiceDetailRoute, invoiceEditRoute, invoicePrintRoute, purchasesRoute, purchaseDetailRoute, purchasePrintRoute, statementsRoute]),
 ]);
 
 /**

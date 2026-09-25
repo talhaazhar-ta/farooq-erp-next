@@ -20,6 +20,7 @@ const VARIANTS = [
 
 let api: Api;
 let inv: { draft: string; confirmed: string; partPaid: string; paid: string; cancelled: string; profitRich: string; movable: string };
+let pur: { lined: string; cancelled: string; partial: string };
 let ids: { received: string; receivedAllocated: string; reversed: string; supplierPaid: string; busiestShop: string; supplier: string; alpha: string };
 
 test.beforeAll(async () => {
@@ -44,6 +45,8 @@ test.beforeAll(async () => {
     movable: firstOf("CONFIRMED", (i) => i.itemCount >= 1 && i.paidP === 0),
   };
   void invoiceDetailOf;
+  const purId = async (q: string) => (await api.get<{ items: { id: string }[] }>(`/purchases?q=${encodeURIComponent(q)}&limit=5`)).items[0]!.id;
+  pur = { lined: await purId("PUR-2026-900001"), cancelled: await purId("PUR-2026-900090"), partial: await purId("karachi flour") };
   ids = {
     received: posted.find((p) => p.kind === "received" && p.appliedTo.length === 0)!.id,
     receivedAllocated: posted.find((p) => p.kind === "received" && p.appliedTo.length >= 2)!.id,
@@ -240,6 +243,16 @@ const SCREENS: Screen[] = [
   { name: "builder-not-available", role: "ACCOUNTANT", url: () => "/invoices/new", prepare: (p) => expect(p.getByTestId("not-available")).toBeVisible() },
   { name: "invoices-not-available", role: "INVENTORY", url: () => "/invoices", prepare: (p) => expect(p.getByTestId("not-available")).toBeVisible() },
   { name: "not-available", role: "INVENTORY", url: () => "/payments", prepare: (p) => expect(p.getByTestId("not-available")).toBeVisible() },
+  { name: "purchases-list", url: () => "/purchases", prepare: (p) => expect(p.getByTestId("purchase-row").first()).toBeVisible() },
+  { name: "purchases-filtered", url: () => "/purchases?q=e2e&pay=UNPAID&sort=high", prepare: (p) => expect(p.getByTestId("count-line")).toContainText(" of ") },
+  { name: "purchases-hits", url: () => "/purchases?q=E2E+Purchase+Maida", prepare: (p) => expect(p.getByTestId("row-hits").first()).toBeVisible() },
+  { name: "purchases-empty", url: () => "/purchases?q=zzzzqqqq", prepare: (p) => expect(p.getByText("Nothing matches these filters")).toBeVisible() },
+  { name: "purchase-view", url: () => `/purchases/${pur.lined}`, prepare: (p) => expect(p.getByTestId("line-row").first()).toBeVisible() },
+  { name: "purchase-view-partial", url: () => `/purchases/${pur.partial}`, prepare: (p) => expect(p.getByTestId("cost-block")).toBeVisible() },
+  { name: "purchase-view-cancelled", url: () => `/purchases/${pur.cancelled}`, prepare: (p) => expect(p.getByTestId("cancelled-banner")).toBeVisible() },
+  { name: "purchase-print", url: () => `/purchases/${pur.partial}/print`, prepare: (p) => expect(p.getByTestId("purchase-paper")).toBeVisible() },
+  { name: "purchase-print-cancelled", url: () => `/purchases/${pur.cancelled}/print`, prepare: (p) => expect(p.getByTestId("purchase-ribbon")).toBeVisible() },
+  { name: "purchases-not-available", role: "SALES", url: () => "/purchases", prepare: (p) => expect(p.getByTestId("not-available")).toBeVisible() },
   { name: "dashboard", url: () => "/", prepare: (p) => expect(p.getByRole("heading", { level: 1 })).toBeVisible() },
 ];
 

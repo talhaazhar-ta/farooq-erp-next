@@ -163,8 +163,16 @@ describe("search", () => {
     // pur-1's row shows its first line (the flour): the hint says the sugar line is why it is here
     expect(r.items.find((i) => legacyOf.get(i.id) === "pur-1")!.hits).toEqual({ lines: [{ name: "Fixture p-2", quantity: 3 }], more: 0 });
     expect(order(await list(q("SKU-p-3")))).toEqual(["pur-4", "pur-2"]);
-    // a word the header explains is not "why"
+    // a word the header explains is not "why" — even when a line holds it too ("Fixture p-1" is a line; the note says "fixture")
     expect((await list(q("sunrise"))).items[0]!.hits).toBeNull();
+    await h.admin`UPDATE purchases SET notes = 'fixture delivery' WHERE legacy_id = 'pur-1'`;
+    try {
+      const r = await list(q("fixture"));
+      expect(r.items.find((i) => legacyOf.get(i.id) === "pur-1")!.hits).toBeNull();
+      expect(r.items.find((i) => legacyOf.get(i.id) === "pur-2")!.hits).toEqual({ lines: [{ name: "Fixture p-3", quantity: 10 }], more: 0 });
+    } finally {
+      await h.admin`UPDATE purchases SET notes = NULL WHERE legacy_id = 'pur-1'`;
+    }
   });
 
   it("a typed date is a filter (it replaces from / to) and is echoed back, not searched as text", async () => {

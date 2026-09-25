@@ -53,8 +53,11 @@ export async function loadPurchasePrint(db: Executor, id: string): Promise<Purch
   if (pu.loadingP) row("loading", T.loading, pu.loadingP, formatMoney(pu.loadingP));
   if (pu.otherChargesP) row("other", T.other, pu.otherChargesP, formatMoney(pu.otherChargesP));
   row("grand", T.grand, pu.totalP, formatMoney(pu.totalP), { big: true });
-  row("paid", T.paid, paidP, formatMoney(paidP));
-  row("payable", T.payable, pu.totalP - paidP, formatMoney(pu.totalP - paidP), { bold: true });
+  // a cancelled purchase is not owed: no Paid / Payable rows (the stamp says why)
+  if (pu.status !== "CANCELLED") {
+    row("paid", T.paid, paidP, formatMoney(paidP));
+    row("payable", T.payable, pu.totalP - paidP, formatMoney(pu.totalP - paidP), { bold: true });
+  }
 
   const lineGoodsP = items.reduce((a, it) => a + it.lineTotalP, 0);
 
@@ -63,7 +66,7 @@ export async function loadPurchasePrint(db: Executor, id: string): Promise<Purch
     title: L.title,
     purchaseId: pu.id,
     number,
-    status: INVOICE_STATUS_LABELS[payStatus],
+    status: pu.status === "CANCELLED" ? INVOICE_STATUS_LABELS.CANCELLED : INVOICE_STATUS_LABELS[payStatus],
     statusKey: pu.status,
     cancelled: pu.status === "CANCELLED",
     date: pu.date,
@@ -79,7 +82,7 @@ export async function loadPurchasePrint(db: Executor, id: string): Promise<Purch
       { label: L.metaRows.driver, value: pu.driver || "", strong: false },
     ],
     strip: [
-      { label: L.strip.paymentStatus, value: INVOICE_STATUS_LABELS[payStatus] },
+      { label: L.strip.paymentStatus, value: pu.status === "CANCELLED" ? INVOICE_STATUS_LABELS.CANCELLED : INVOICE_STATUS_LABELS[payStatus] },
       { label: L.stripOrdered, value: qty(pu.orderedQtyMilli) },
       { label: L.strip.bagsReceived, value: qty(pu.receivedQtyMilli) },
       { label: L.strip.lines, value: String(items.length) },
@@ -104,7 +107,7 @@ export async function loadPurchasePrint(db: Executor, id: string): Promise<Purch
       amount: formatPaisaPlain(it.lineTotalP),
     })),
     itemsFooter: {
-      description: `Total — ${items.length} lines`,
+      description: `Total — ${items.length}${items.length === 1 ? " line" : " lines"}`,
       ordered: qty(pu.orderedQtyMilli),
       received: qty(pu.receivedQtyMilli),
       amountP: lineGoodsP,

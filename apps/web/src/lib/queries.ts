@@ -2,6 +2,9 @@ import { z } from "zod";
 import {
   companyProfileSchema,
   invoiceDetailSchema,
+  purchaseDetailSchema,
+  purchaseListResponseSchema,
+  purchasePrintSchema,
   productPickItemSchema,
   invoiceListResponseSchema,
   invoicePrintSchema,
@@ -46,6 +49,10 @@ export const keys = {
   invoice: (id: string) => ["invoices", "detail", id] as const,
   invoicePrint: (id: string, template: string) => ["invoices", "print", id, template] as const,
   warehouses: ["warehouses"] as const,
+  purchases: ["purchases"] as const,
+  purchaseList: (params: Record<string, string>) => ["purchases", "list", params] as const,
+  purchase: (id: string) => ["purchases", "detail", id] as const,
+  purchasePrint: (id: string) => ["purchases", "print", id] as const,
   products: ["products"] as const,
   productSearch: (q: string, warehouseId: string, limit: number) => ["products", "search", q, warehouseId, limit] as const,
   productsByIds: (ids: string[]) => ["products", "ids", ...ids] as const,
@@ -116,6 +123,27 @@ export const searchProducts = (q: string, warehouseId: string, limit: number, si
   api.getParsed(`/products${toQueryString({ ...(q.trim() ? { q: q.trim() } : {}), ...(warehouseId ? { warehouseId } : {}), limit: String(limit) })}`, z.array(productPickItemSchema), signal);
 /** Exactly these products (the ones already on an invoice), active or not. */
 export const getProductsByIds = (ids: string[]) => api.getParsed(`/products${toQueryString({ ids: ids.join(","), limit: "100" })}`, z.array(productPickItemSchema));
+
+/* ── purchases (S13: read; the builder is S14) ─────────────────────────────────────── */
+
+export const listPurchases = (params: Record<string, string>, signal?: AbortSignal) =>
+  api.getParsed(`/purchases${toQueryString(params)}`, purchaseListResponseSchema, signal);
+export const getPurchase = (id: string) => api.getParsed(`/purchases/${id}`, purchaseDetailSchema);
+export const getPurchasePrint = (id: string) => api.getParsed(`/purchases/${id}/print`, purchasePrintSchema);
+
+/** The purchase CSV: every match of the current filters, saved with the server's own file name. */
+export async function exportPurchasesCsv(params: Record<string, string>): Promise<string> {
+  const { blob, filename } = await api.download(`/purchases/export.csv${toQueryString(params)}`);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  return filename;
+}
 
 /** The invoice CSV: every match of the current filters (no paging), saved with the server's own file name. */
 export async function exportInvoicesCsv(params: Record<string, string>): Promise<string> {
