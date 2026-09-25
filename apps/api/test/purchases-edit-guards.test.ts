@@ -131,6 +131,21 @@ describe("G a line with bags sent back to the supplier cannot go away", () => {
     expect(g8.lines[0].id).toBe(g1.lines[0].id);
   });
 
+  it("returned bags on a line lock the supplier even when no return document names the purchase (a purchase made here has no legacy id)", async () => {
+    // S13: this half of the lock had no test of its own — removing it left every test green (the return row of G0-G8 locks on its own)
+    const s = await purScenario(h, 1);
+    const g = await mkPurchase(h, owner, s, [{ productId: s.ps[0]!.id, quantity: 30, unitPriceP: 100_000 }]);
+    await h.admin`UPDATE purchase_items SET returned_qty_milli = 5000 WHERE id = ${g.lines[0].id}`;
+    const [row] = await h.admin<{ legacy_id: string | null }[]>`SELECT legacy_id FROM purchases WHERE id = ${g.id}`;
+    expect(row!.legacy_id).toBeNull();
+    const before = await snap(s, g.id);
+    const sup2 = await h.seed.supplier();
+    expect(refused(await putPur(h, owner, g.id, purEditBody(g, { supplierId: sup2.id })))).toEqual([
+      "A return to the supplier has been posted against this purchase ((no number)), so the supplier cannot be changed.",
+    ]);
+    expect(await snap(s, g.id)).toBe(before);
+  });
+
   it("a cancelled return does not lock the supplier", async () => {
     const s = await purScenario(h, 1);
     const g = await mkPurchase(h, owner, s, [{ productId: s.ps[0]!.id, quantity: 5, unitPriceP: 100_000 }]);
