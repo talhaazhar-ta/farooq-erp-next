@@ -39,12 +39,33 @@ documents, stock value, average-cost maintenance and the COGS journal. Not used 
 | **S9: invoice list, view, print, corrections + e2e ✓** | list/search/cards/CSV, view page, print (classic + standard, A4), discard / cancel / duplicate / change shop, profit block, statement Qty + Receive-panel detail; Playwright; screenshots reviewed | e2e green; screenshots reviewed; reconciliation 0 |
 | **S10: invoice builder + e2e — closes M2 ✓** | new / edit / post, live totals, stock and price hints, payment at sale, edit posted (net, stale revision), unsaved-changes guard, phone layout; Playwright; M2 summary | e2e green; "not seen by a person" list; M2 complete |
 
-## After M2 (not yet broken into sessions)
+## M3 — Purchases (planned 2026-09-25; S11 final, S12–S14 drafts)
+
+Supplier bills end to end: lines (ordered / received per line, per-line warehouse), `PURCHASE_IN` on the M2 stock ledger, the payment made with the purchase,
+edit (money only ever added, stable line ids, net stock guard, supplier locked once anything is attached), **average-cost maintenance**, list / search / print, the builder.
+Not used by staff; the live ERP stays the system of record.
+
+**User decisions (2026-09-25):**
+1. **Average cost is maintained in M3** — ported from the legacy purchase-history average (`17-profit.js` `Cost.weightedAverage`; `26-landed-cost.js`
+   `Landed.weightedAverage` under the `LANDED` basis, which the real data uses). The operational share of a landed cost is kept on the line (M6 writes it).
+2. Create = `PURCHASE_CREATE`; edit = `PURCHASE_CREATE` or `TRANSACTION_CORRECT` (legacy); paying with the purchase also needs `PAYMENT_PAYOUT`.
+3. Legacy bugs fixed: paid > total / negative on a new purchase; line discount above the line amount; part-delivery unit cost (÷ ordered, not ÷ received);
+   the print's "Bags received" showing ordered bags.
+4. No drafts, cancel, delete, separate Change supplier or `receiveMore` (the legacy has none reachable).
+5. S11 (data only) may start before the M1 + M2 walkthrough by a person; S13 / S14 (screens) wait for it.
+
+| Session | Scope | Done when |
+|---|---|---|
+| **S11: purchase lines + full header + average cost (data, import)** | migration `0008` (header columns, `purchase_items`, unique number), `ledger.ts` purchase builder, shared `purchase-cost.ts` (`allocateCharges`, `weightedAverage`), importer maps lines, reconciliation of purchase totals, purchase ↔ stock and average cost | fixture + v710 + v692: 0 differences on every check |
+| **S12: Purchases service + API** | create, edit (net), payment with the purchase (shared payout core), average-cost writes, permissions, idempotency, concurrency, ledger bridge | rule tests + 403s + bridge green; reconciliation 0 |
+| **S13: list, view, print** | search / filters / cards / CSV, view page, A4 print (server + screens), Playwright | e2e green; screenshots and PDF reviewed |
+| **S14: builder — closes M3** | new / edit purchase builder, phone layout, Playwright, M3 summary | e2e green; M3 complete |
+
+## After M3 (not yet broken into sessions)
 
 Planned order, subject to change once the parity log shows which legacy areas actually moved the most:
 
-2. **M3 — Purchases** (purchase edit-only-adds rule, no cancel/delete, no change-supplier; purchase lines + `PURCHASE_IN` on the M2 stock ledger)
-3. **M4 — Stock / warehouses** (stock documents receive/dispatch/transfer/adjust, avgCostP vs carriedCost maintenance, stock value, brand conversion, COGS journal — quantities already exist from M2)
+3. **M4 — Stock / warehouses** (stock documents receive/dispatch/transfer/adjust, carriedCost for non-purchase receipts, stock value, brand conversion, COGS journal — quantities exist from M2, purchase-kept average cost from M3)
 4. **M5 — Returns** (customer returns incl. REFUND-tied cash, supplier returns)
 5. **M6 — Landed cost**
 6. **M7 — Payroll** (staff pay never through Expenses; reverse-never-delete)

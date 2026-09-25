@@ -178,7 +178,7 @@ and signs each role in once (storage states). Specs run one at a time, in file o
 ## Roadmap
 
 See `docs/ROADMAP.md` for the full milestone list. **M1 — Foundation + Payments is complete** (S1–S5). **M2 — Invoices is complete** (S6 lines + stock ✓ → S7 service + API ✓ → S8 search / print / profit server side ✓ →
-S9 list / view / print / corrections ✓ → **S10 invoice builder + e2e ✓**). Next milestone: **M3 — Purchases** (after a person has walked the M1 + M2 screens — see STATUS "Next step"). The owner's three M2 decisions (cancel with receipts refused; permissions; net edit of posted invoices) are in `docs/ROADMAP.md` → M2.
+S9 list / view / print / corrections ✓ → **S10 invoice builder + e2e ✓**). **M3 — Purchases is planned** (S11 data + import → S12 service + API → S13 list / view / print → S14 builder; decisions in `docs/ROADMAP.md` → M3). S13 / S14 wait until a person has walked the M1 + M2 screens (STATUS "Next step"). The owner's three M2 decisions (cancel with receipts refused; permissions; net edit of posted invoices) are in `docs/ROADMAP.md` → M2.
 
 ## Where to look for more detail
 

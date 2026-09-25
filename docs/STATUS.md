@@ -1,6 +1,6 @@
 # Status
 
-**Last updated:** 2026-09-24 (S10 session; trimmed by the planning hub the same day). **Milestones 1 (Payments) and 2 (Invoices) are complete. Next: a person walks the screens, then M3 — Purchases.**
+**Last updated:** 2026-09-24 (S10 session; trimmed by the planning hub the same day). **Milestones 1 (Payments) and 2 (Invoices) are complete. M3 — Purchases is planned (2026-09-25): next is S11 (data + import); a person walks the M1 + M2 screens before S13.**
 Nothing is deployed; the live ERP is untouched and is still the only system of record. **No member of staff has used any screen.**
 
 **How this file works:** it holds only the *current* state — where we are, the baseline numbers, the rules still in force, open questions, the next step. Each session's full write-up (what was built, verification tables,
@@ -81,9 +81,10 @@ Every screen. In particular a real phone (only a 390 px emulated viewport); a **
 
 ## Next step
 
-1. **A person walks the M1 + M2 screens on a real machine and a real phone, and prints one receipt and one invoice** (compare the classic invoice with the shop's paper sheet) **before M3 starts** — the first contact of about ten sessions of work with a person.
-2. Then **M3 — Purchases** (`docs/ROADMAP.md`): purchase edit-only-adds rule, no cancel / delete, no change-supplier; purchase lines + `PURCHASE_IN` on the M2 stock ledger. Needs its own plan (`docs/sessions/S11.md`), written by the planning hub from this file, `docs/PARITY.md` and the legacy purchase modules.
-3. Old-ERP changes: check `git log` of `projectFarooqAndCoTraders` since 2026-09-24 against the `docs/PARITY.md` change log before planning (none as of 2026-09-24).
+1. **S11 — purchase lines, full header, average cost** (`docs/sessions/S11.md`, final). Data / import / reconciliation only — it may start now.
+2. **A person walks the M1 + M2 screens on a real machine and a real phone, and prints one receipt and one invoice** (compare the classic invoice with the shop's paper sheet). This blocks **S13 / S14** (the M3 screens), not S11 / S12.
+3. M3 plan: `docs/ROADMAP.md` → M3 (user decisions 2026-09-25: average cost maintained in M3; create `PURCHASE_CREATE`, edit `PURCHASE_CREATE` | `TRANSACTION_CORRECT`, paying also `PAYMENT_PAYOUT`; four legacy bugs fixed). S12–S14 are drafts until the hub finalises each.
+4. Old-ERP changes: none since 2026-09-24 (checked 2026-09-25). The newest nightly `data/business-20260924-210002-v710-449d.json` holds the **first real landed cost** — S11 must reconcile it.
 
 ## CI
 

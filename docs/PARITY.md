@@ -169,12 +169,13 @@ Money-critical rules to port with a dedicated test each (from the old project's 
 see `projectFarooqAndCoTraders/CLAUDE.md`), tracked here as they're picked up in S3/S4 and beyond:
 
 - Stock cost: `avgCostP` only moves on `PURCHASE_IN`/`MILL_RECEIPT_IN`; `costOf` falls back to carried cost,
-  preferring a warehouse's own carried cost over another warehouse's average — not started (M4).
+  preferring a warehouse's own carried cost over another warehouse's average — `costOf` read ported (S7); **purchase-kept average moved
+  to M3** (S11 proves the legacy purchase-history average on real data, S12 writes it); milling receipts M8.
 - Money screens never pre-select a party; Save refuses without one — **ported (S5)**: `panels.test` (unit) and `receive.spec` (Chrome).
 - Edit-amount voucher correction: refused for reversed / allocated / customer-return-REFUND-tied vouchers —
   **ported (S3)**, see "Payments rules ported in S3" below.
-- Purchase edit: money only ever added, line ids stable, stock guard on net change; no cancel/delete — not
-  started (M3).
+- Purchase edit: money only ever added, line ids stable, stock guard on net change; no cancel/delete — planned
+  (M3: data S11, service S12; see "M3 (Purchases) — user decisions" below).
 - Change shop moves the shop and its wholly-applied receipts only; refused with a return or a split receipt; needs TRANSACTION_CORRECT — **ported in S7** (see "Invoices service — ported in S7").
 - Only one draft invoice can exist (unique invoiceNumber, drafts save '') — **legacy bug, fixed by the schema in S6**: drafts carry NULL and the unique index is partial (`WHERE invoice_number IS NOT NULL`); tests `invoice-lines-stock` › "many DRAFTS can exist…" and "the importer accepts a backup with several numberless drafts…".
 
@@ -191,6 +192,19 @@ stock that was never taken; `SALES_CREATE` never enforced. Ported as-is: `Calc` 
 the posting transaction with the current year, receipt for the paid delta only, DR RECEIVABLES / CR SALES (no COGS until M4).
 Found in the live ERP too — reported to the owner 2026-09-24; not changed there.
 - Dates: local business date, never `toISOString()` — enforced as a project-wide rule, see `CLAUDE.md` rule 6.
+
+### M3 (Purchases) — user decisions and legacy quirks to fix (planned 2026-09-25; each needs a test in S11–S14)
+
+User decisions: (1) average cost maintained in M3 as the legacy purchase-history average (`Cost.weightedAverage` / `Landed.weightedAverage` by the
+`profitCostBasis` setting — `LANDED` in the real data), always recomputed, never nudged; (2) create = `PURCHASE_CREATE`, edit = `PURCHASE_CREATE` or
+`TRANSACTION_CORRECT` (legacy), paying with the purchase also `PAYMENT_PAYOUT`; (3) no drafts / cancel / delete / separate Change supplier / `receiveMore`.
+
+Legacy quirks being fixed, not ported: a new purchase accepts paid > total and a negative paid (only an edit checked); a line discount above the line amount
+is accepted; a part delivery's unit cost is the line total ÷ **received** bags (overstated — fixed to ÷ ordered); the print labels ordered bags "Bags received".
+Ported as-is: `Calc` totals, DRAFT/ORDERED purchases post to the supplier, Received = 0 posts the bill only (the warehouse-app double-count rule), the supplier
+lock / returned-line / landed-line / net-stock guards and their wording, money only ever added.
+Found by the planning hub 2026-09-25 (v710 nightly): the first real landed cost exists (one line, `operationalShare` 6,000,000 over 10 bags) — the average-cost
+port must include it.
 
 ## Invoice lines, full header, stock quantities — ported in S6
 
