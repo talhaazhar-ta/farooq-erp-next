@@ -19,7 +19,7 @@ Keep this file under ~150 lines.
 ## Baseline (run before you change anything)
 
 `pnpm install && pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm e2e` — all green, 0 lint warnings, **and check the exit code** (until S8, CI could not fail on a failing test).
-`pnpm test`: **1,304 tests** (shared 167, web 209, import 300, api 628; the real-backup datasets skip without `data/`). `pnpm e2e`: **165 Playwright tests** (~7.5 min). CI: see the last section.
+`pnpm test`: **1,362 tests** (shared 167, web 221, import 300, api 674; the real-backup datasets skip without `data/`). `pnpm e2e`: **192 Playwright tests** (~8 min). CI: see the last section.
 
 ## Repo map
 
