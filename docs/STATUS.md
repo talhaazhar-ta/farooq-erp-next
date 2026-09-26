@@ -105,4 +105,4 @@ Every screen (now including the purchase list, view and print; the builder's new
 
 ## CI
 
-S13 commit `d89dadd`: **green** — run 36129877175 (build, typecheck, lint, test 1,362, Playwright 192) on the Linux runner. S12 commit `44f5134`: **green** — run 36101181347 (build, typecheck, lint, test 1,304, Playwright 165) on the Linux runner. S11 commit `f02a0ad`: **green** — run 36096072237 (build, typecheck, lint, test 1,201, Playwright 165). S10: run 36023883386 green.
+S14 commit `882fda6`: **green** — run 36216065521 (build, typecheck, lint, test 1,423, Playwright 192; every step success) on the Linux runner. The real-backup datasets skip in CI (no `data/`); `real-backup-set` and the fixture-based tests run there. S13 commit `d89dadd`: **green** — run 36129877175 (build, typecheck, lint, test 1,362, Playwright 192) on the Linux runner. S12 commit `44f5134`: **green** — run 36101181347 (build, typecheck, lint, test 1,304, Playwright 165) on the Linux runner. S11 commit `f02a0ad`: **green** — run 36096072237 (build, typecheck, lint, test 1,201, Playwright 165). S10: run 36023883386 green.
