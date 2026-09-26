@@ -1,13 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Role } from "@farooq/shared";
 import { mockApi } from "../test/fetch-mock";
 
 let role: Role = "OWNER";
+const navigate = vi.fn();
 vi.mock("../lib/auth", () => ({ useAuth: () => ({ user: { id: "u", name: "Tester", username: "t", role }, isLoading: false }) }));
 vi.mock("@tanstack/react-router", () => ({
-  useNavigate: () => vi.fn(),
+  useNavigate: () => navigate,
   useParams: () => ({ id: PID }),
   useSearch: () => ({}),
   Link: ({ children, to, params, search, ...rest }: { children: React.ReactNode; to: string; params?: Record<string, string>; search?: Record<string, string> } & Record<string, unknown>) => (
@@ -94,6 +96,18 @@ describe("the list", () => {
     expect(screen.getByPlaceholderText("Search supplier, product or invoice…")).toBeInTheDocument();
   });
 
+  it("'New purchase' is offered to whoever may record purchases (owner, manager) and not to a role that only reads or corrects them", async () => {
+    for (const [r, shown] of [["OWNER", true], ["MANAGER", true], ["ACCOUNTANT", false]] as [Role, boolean][]) {
+      role = r;
+      mockApi({ "GET /purchases": listResponse([item()]), "GET /warehouses": [] });
+      const { unmount } = wrap(<PurchasesPage />);
+      await screen.findAllByTestId("purchase-row");
+      if (shown) expect(screen.getByTestId("new-purchase")).toHaveAttribute("href", "/purchases/new");
+      else expect(screen.queryByTestId("new-purchase")).toBeNull();
+      unmount();
+    }
+  });
+
   it("the warehouse role and Sales get the not-available panel and no request is made", () => {
     for (const r of ["INVENTORY", "SALES"] as Role[]) {
       role = r;
@@ -147,6 +161,30 @@ describe("the view page", () => {
     expect(screen.getByTestId("action-edit")).toHaveAttribute("data-allowed", "true");
     expect(screen.getByTestId("cost-block")).toHaveTextContent("average 1,040.00");
     expect(screen.getByTestId("line-cost")).toHaveTextContent("1,083.33");
+  });
+
+  it("Edit opens the purchase form when the server allows it, and says nothing about 'not available'; Change supplier stays off with the server's reason", async () => {
+    navigate.mockReset();
+    mockApi({ [`GET /purchases/${PID}`]: detail(), "GET /warehouses": [] });
+    wrap(<PurchaseDetailPage />);
+    const edit = await screen.findByTestId("action-edit");
+    expect(edit).toBeEnabled();
+    expect(screen.getByTestId("reason-edit")).toHaveTextContent("");
+    expect(document.body).not.toHaveTextContent("not available yet");
+    await userEvent.setup().click(edit);
+    expect(navigate).toHaveBeenCalledWith({ to: "/purchases/$id/edit", params: { id: PID } });
+    expect(screen.getByTestId("action-change-supplier")).toBeDisabled();
+  });
+
+  it("when the supplier CAN be changed, that button opens the same form and says where the choice is made", async () => {
+    navigate.mockReset();
+    mockApi({ [`GET /purchases/${PID}`]: detail({ actions: { edit: { allowed: true, reason: null }, changeSupplier: { allowed: true, reason: null } } }), "GET /warehouses": [] });
+    wrap(<PurchaseDetailPage />);
+    const btn = await screen.findByTestId("action-change-supplier");
+    expect(btn).toBeEnabled();
+    expect(screen.getByTestId("reason-change-supplier")).toHaveTextContent("Open Edit purchase and choose another supplier there.");
+    await userEvent.setup().click(btn);
+    expect(navigate).toHaveBeenCalledWith({ to: "/purchases/$id/edit", params: { id: PID } });
   });
 
   it("without PROFIT_VIEW the cost keys are absent — and so is every trace of cost on the page", async () => {

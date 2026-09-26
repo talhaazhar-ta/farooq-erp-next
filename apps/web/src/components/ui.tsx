@@ -99,6 +99,19 @@ export function Banner({ tone = "info", title, children, className, role, ...res
   );
 }
 
+/** A titled panel of a builder screen (invoice and purchase builders). */
+export function Card({ title, aside, children, testId }: { title: string; aside?: ReactNode; children: ReactNode; testId?: string }) {
+  return (
+    <section className="rounded-xl border border-(--color-border) bg-(--color-surface)" data-testid={testId}>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-(--color-border) px-4 py-2">
+        <h2 className="text-sm font-semibold">{title}</h2>
+        {aside}
+      </div>
+      <div className="p-4">{children}</div>
+    </section>
+  );
+}
+
 export function Badge({ tone = "neutral", children }: { tone?: "neutral" | "ok" | "warn" | "danger"; children: ReactNode }) {
   const tones = {
     neutral: "bg-(--color-bg) text-(--color-text-muted) border-(--color-border)",

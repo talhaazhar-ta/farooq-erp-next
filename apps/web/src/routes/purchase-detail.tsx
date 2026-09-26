@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { formatPaisaPlain, type PurchaseAction, type PurchaseDetail } from "@farooq/shared";
 import { RequirePurchasesAccess } from "../components/guard";
 import { Badge, Banner, Button, ErrorLines, Loading } from "../components/ui";
@@ -28,11 +28,9 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 const linkButton = "rounded-md border border-(--color-border) bg-(--color-surface) px-3.5 py-2 text-sm font-medium text-(--color-text)";
 
-/** Until the purchase form exists (S14), an allowed edit cannot be opened here; the server's refusal reason is shown as it is. */
-const NO_FORM_YET = "Editing a purchase on screen is not available yet.";
-
 function PurchaseDetailScreen() {
   const { id } = useParams({ from: "/shell/purchases/$id" });
+  const navigate = useNavigate();
   const q = useQuery({ queryKey: keys.purchase(id), queryFn: () => getPurchase(id), retry: (n, err) => !(err instanceof ApiError && err.status === 404) && n < 2 });
   const warehouses = useQuery({ queryKey: keys.warehouses, queryFn: getWarehouses, staleTime: 5 * 60_000 });
 
@@ -254,10 +252,10 @@ function PurchaseDetailScreen() {
       <section aria-label="Actions" className="space-y-3 rounded-xl border border-(--color-border) bg-(--color-surface) p-4">
         <h2 className="text-sm font-semibold">Actions</h2>
         <div className="grid gap-3 sm:grid-cols-2">
-          <ActionButton action={pu.actions.edit} testId="edit">
+          <ActionButton action={pu.actions.edit} testId="edit" onClick={() => void navigate({ to: "/purchases/$id/edit", params: { id: pu.id } })}>
             Edit purchase
           </ActionButton>
-          <ActionButton action={pu.actions.changeSupplier} testId="change-supplier">
+          <ActionButton action={pu.actions.changeSupplier} testId="change-supplier" onClick={() => void navigate({ to: "/purchases/$id/edit", params: { id: pu.id } })} allowedNote="Open Edit purchase and choose another supplier there.">
             Change supplier
           </ActionButton>
         </div>
@@ -267,17 +265,17 @@ function PurchaseDetailScreen() {
 }
 
 /**
- * A button drawn from the server's verdict: when the server refuses, disabled with its own reason underneath. When it allows, the
- * button is still off here for now — the purchase form arrives in S14 — and says so.
+ * A button drawn from the server's verdict: when the server refuses, disabled with its own reason underneath; when it allows, the
+ * button opens the purchase form (`allowedNote` says what the button does when that is not obvious from its name).
  */
-function ActionButton({ action, testId, children }: { action: PurchaseAction; testId: string; children: React.ReactNode }) {
+function ActionButton({ action, testId, onClick, allowedNote, children }: { action: PurchaseAction; testId: string; onClick: () => void; allowedNote?: string; children: React.ReactNode }) {
   return (
     <div>
-      <Button disabled aria-describedby={`${testId}-reason`} data-testid={`action-${testId}`} data-allowed={action.allowed ? "true" : "false"}>
+      <Button disabled={!action.allowed} onClick={onClick} aria-describedby={`${testId}-reason`} data-testid={`action-${testId}`} data-allowed={action.allowed ? "true" : "false"}>
         {children}
       </Button>
       <p id={`${testId}-reason`} className="mt-1 text-xs text-(--color-text-muted)" data-testid={`reason-${testId}`}>
-        {action.allowed ? NO_FORM_YET : action.reason}
+        {action.allowed ? (allowedNote ?? "") : action.reason}
       </p>
     </div>
   );

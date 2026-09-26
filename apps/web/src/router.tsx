@@ -12,6 +12,7 @@ import { InvoicePrintPage, templateFromSearch } from "./routes/invoice-print";
 import { InvoiceEditPage, InvoiceNewPage } from "./routes/invoice-builder";
 import { PurchasesPage } from "./routes/purchases";
 import { PurchaseDetailPage } from "./routes/purchase-detail";
+import { PurchaseEditPage, PurchaseNewPage } from "./routes/purchase-builder";
 import { PurchasePrintPage } from "./routes/purchase-print";
 import { invoiceFiltersFromSearch, invoiceFiltersToSearch } from "./lib/invoice-filters";
 import { purchaseFiltersFromSearch, purchaseFiltersToSearch } from "./lib/purchase-filters";
@@ -95,6 +96,19 @@ const purchasesRoute = createRoute({
   component: PurchasesPage,
 });
 
+// "/purchases/new" is a fixed path: the router matches it before "/purchases/$id"
+const purchaseNewRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: "/purchases/new",
+  component: PurchaseNewPage,
+});
+
+const purchaseEditRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: "/purchases/$id/edit",
+  component: PurchaseEditPage,
+});
+
 const purchaseDetailRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/purchases/$id",
@@ -116,7 +130,7 @@ const statementsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   signInRoute,
-  shellRoute.addChildren([indexRoute, paymentsRoute, paymentDetailRoute, receiptRoute, invoicesRoute, invoiceNewRoute, invoiceDetailRoute, invoiceEditRoute, invoicePrintRoute, purchasesRoute, purchaseDetailRoute, purchasePrintRoute, statementsRoute]),
+  shellRoute.addChildren([indexRoute, paymentsRoute, paymentDetailRoute, receiptRoute, invoicesRoute, invoiceNewRoute, invoiceDetailRoute, invoiceEditRoute, invoicePrintRoute, purchasesRoute, purchaseNewRoute, purchaseDetailRoute, purchaseEditRoute, purchasePrintRoute, statementsRoute]),
 ]);
 
 /**

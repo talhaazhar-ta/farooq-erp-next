@@ -58,6 +58,20 @@ export const SCENARIO = {
   supLahore: { id: "e2e-sup-lahore", name: "E2E Lahore Grain Co", purchases: [] },
   supMultan: { id: "e2e-sup-multan", name: "E2E Multan Rice Traders", purchases: [] },
   supQuetta: { id: "e2e-sup-quetta", name: "کوئٹہ ملز E2E", purchases: [] },
+  // S15: suppliers the purchase-BUILDER specs record bills for (each money-moving test owns one; the last has an Urdu name)
+  supSahiwal: { id: "e2e-sup-sahiwal", name: "E2E Sahiwal Grain Mills", purchases: [] },
+  supFaisal: { id: "e2e-sup-faisal", name: "E2E Faisalabad Feed Co", purchases: [] },
+  supSukkur: { id: "e2e-sup-sukkur", name: "E2E Sukkur Rice Traders", purchases: [] },
+  supBahawal: { id: "e2e-sup-bahawal", name: "E2E Bahawalpur Oils", purchases: [] },
+  supGujrat: { id: "e2e-sup-gujrat", name: "E2E Gujrat Atta Works", purchases: [] },
+  supSialkot: { id: "e2e-sup-sialkot", name: "سیالکوٹ ملز E2E", purchases: [] },
+  supJhelum: { id: "e2e-sup-jhelum", name: "E2E Jhelum Bulk Supply", purchases: [] },
+  supMardan: { id: "e2e-sup-mardan", name: "E2E Mardan Wheat Depot", purchases: [] },
+  supKasur: { id: "e2e-sup-kasur", name: "E2E Kasur Salt Works", purchases: [] },
+  supDera: { id: "e2e-sup-dera", name: "E2E Dera Ismail Stores", purchases: [] },
+  supSwat: { id: "e2e-sup-swat", name: "E2E Swat Valley Supply", purchases: [] },
+  // a shop the builder spec sells one bought product to (a purchase cannot be cut below the bags already sold)
+  buyerShop: { id: "e2e-cust-buyer", name: "E2E Buyer Shop", invoices: [] },
 } as const;
 
 /**
@@ -68,6 +82,17 @@ export const PURCHASE_PRODUCTS = {
   wheat: { id: "pp-wheat", en: "E2E Purchase Wheat 40KG", ur: "ای ٹو ای گندم", cat: "گندم", kg: 40 },
   maida: { id: "pp-maida", en: "E2E Purchase Maida 50KG", ur: "ای ٹو ای میدہ", cat: "آٹا", kg: 50 },
   bran: { id: "pp-bran", en: "E2E Purchase Bran 30KG", ur: "ای ٹو ای چوکر", cat: "چوکر", kg: 30 },
+} as const;
+
+/**
+ * S15: products that only the purchase-BUILDER specs buy (a purchase moves stock and rewrites the average cost). No "Builder" in the name —
+ * S10's product search counts the "builder" ones — and no Urdu word S10 searches for.
+ */
+export const BUYER_PRODUCTS = {
+  rice: { id: "by-rice", en: "E2E Buyer Rice 25KG", ur: "خریدار اناج", cat: "خریدار اناج", kg: 25 },
+  sugar: { id: "by-sugar", en: "E2E Buyer Sugar 50KG", ur: "خریدار شکر", cat: "خریدار شکر", kg: 50 },
+  salt: { id: "by-salt", en: "E2E Buyer Salt 5KG", ur: "خریدار نمک", cat: "خریدار نمک", kg: 5 },
+  ghee: { id: "by-ghee", en: "E2E Buyer Ghee 10KG", ur: "خریدار گھی", cat: "خریدار گھی", kg: 10 },
 } as const;
 
 type Doc = Record<string, any>;
@@ -117,7 +142,7 @@ function addBuilderProducts(data: Record<string, Doc[]>): void {
 /** S13's purchase products: in the catalogue, no bags yet (except the wheat the dataset's own purchase brought, added below). */
 function addPurchaseProducts(data: Record<string, Doc[]>): void {
   const template = data.products![0]!;
-  for (const p of Object.values(PURCHASE_PRODUCTS)) {
+  for (const p of [...Object.values(PURCHASE_PRODUCTS), ...Object.values(BUYER_PRODUCTS)]) {
     data.products!.push({
       ...structuredClone(template),
       id: p.id, ur: p.ur, en: p.en, name: p.ur, nameEn: p.en, normalizedName: p.en.toLowerCase(), brand: "E2E", brandEn: "E2E", cat: p.cat, category: p.cat, categoryRaw: p.cat,
@@ -185,7 +210,7 @@ export function buildE2eBackup(): Backup {
   const pad = (n: number) => String(n).padStart(6, "0");
   let invNo = 900_000;
 
-  const shops = [SCENARIO.alpha, SCENARIO.beta, SCENARIO.gamma, SCENARIO.delta, SCENARIO.echo, SCENARIO.foxtrot, SCENARIO.golf, SCENARIO.hotel, SCENARIO.india, SCENARIO.juliet, SCENARIO.kilo, SCENARIO.lima, SCENARIO.mike, SCENARIO.november, SCENARIO.oscar, SCENARIO.papa, SCENARIO.quebec, SCENARIO.romeo, SCENARIO.sierra, SCENARIO.tango, SCENARIO.uniform, SCENARIO.victor, SCENARIO.whiskey, SCENARIO.xray, SCENARIO.yankee, SCENARIO.zulu];
+  const shops = [SCENARIO.alpha, SCENARIO.beta, SCENARIO.gamma, SCENARIO.delta, SCENARIO.echo, SCENARIO.foxtrot, SCENARIO.golf, SCENARIO.hotel, SCENARIO.india, SCENARIO.juliet, SCENARIO.kilo, SCENARIO.lima, SCENARIO.mike, SCENARIO.november, SCENARIO.oscar, SCENARIO.papa, SCENARIO.quebec, SCENARIO.romeo, SCENARIO.sierra, SCENARIO.tango, SCENARIO.uniform, SCENARIO.victor, SCENARIO.whiskey, SCENARIO.xray, SCENARIO.yankee, SCENARIO.zulu, SCENARIO.buyerShop];
   shops.forEach((s, i) => {
     data.customers!.push({
       ...customerTemplate,
@@ -255,7 +280,7 @@ export function buildE2eBackup(): Backup {
   addBuilderProducts(data);
 
   data.suppliers!.push({ ...supplierTemplate, id: SCENARIO.supplier.id, legacyCode: "E-S01", co: SCENARIO.supplier.name, cp: "Mr Mills", ph: "0300-7770001", lo: "Peshawar", active: true });
-  [SCENARIO.supKarachi, SCENARIO.supLahore, SCENARIO.supMultan, SCENARIO.supQuetta].forEach((s, i) =>
+  [SCENARIO.supKarachi, SCENARIO.supLahore, SCENARIO.supMultan, SCENARIO.supQuetta, SCENARIO.supSahiwal, SCENARIO.supFaisal, SCENARIO.supSukkur, SCENARIO.supBahawal, SCENARIO.supGujrat, SCENARIO.supSialkot, SCENARIO.supJhelum, SCENARIO.supMardan, SCENARIO.supKasur, SCENARIO.supDera, SCENARIO.supSwat].forEach((s, i) =>
     data.suppliers!.push({ ...supplierTemplate, id: s.id, legacyCode: `E-S${pad(i + 2)}`, co: s.name, cp: "", ph: `0300-777${String(i + 2).padStart(4, "0")}`, lo: "", active: true }),
   );
   addPurchaseProducts(data);

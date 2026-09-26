@@ -4,6 +4,7 @@ import {
   invoiceDetailSchema,
   purchaseDetailSchema,
   purchaseListResponseSchema,
+  purchaseRateSchema,
   purchasePrintSchema,
   productPickItemSchema,
   invoiceListResponseSchema,
@@ -13,6 +14,7 @@ import {
   type ChangeInvoiceShopInput,
   type DuplicateInvoiceInput,
   type SaveInvoiceInput,
+  type SavePurchaseInput,
   outstandingDocumentSchema,
   partyBalanceSchema,
   partyLookupItemSchema,
@@ -53,6 +55,7 @@ export const keys = {
   purchaseList: (params: Record<string, string>) => ["purchases", "list", params] as const,
   purchase: (id: string) => ["purchases", "detail", id] as const,
   purchasePrint: (id: string) => ["purchases", "print", id] as const,
+  purchaseRates: (ids: string[]) => ["purchases", "rates", ...ids] as const,
   products: ["products"] as const,
   productSearch: (q: string, warehouseId: string, limit: number) => ["products", "search", q, warehouseId, limit] as const,
   productsByIds: (ids: string[]) => ["products", "ids", ...ids] as const,
@@ -124,12 +127,19 @@ export const searchProducts = (q: string, warehouseId: string, limit: number, si
 /** Exactly these products (the ones already on an invoice), active or not. */
 export const getProductsByIds = (ids: string[]) => api.getParsed(`/products${toQueryString({ ids: ids.join(","), limit: "100" })}`, z.array(productPickItemSchema));
 
-/* ── purchases (S13: read; the builder is S14) ─────────────────────────────────────── */
+/* ── purchases (S13: read; S15: the builder) ─────────────────────────────────────── */
 
 export const listPurchases = (params: Record<string, string>, signal?: AbortSignal) =>
   api.getParsed(`/purchases${toQueryString(params)}`, purchaseListResponseSchema, signal);
 export const getPurchase = (id: string) => api.getParsed(`/purchases/${id}`, purchaseDetailSchema);
 export const getPurchasePrint = (id: string) => api.getParsed(`/purchases/${id}/print`, purchasePrintSchema);
+
+/** Save a purchase: POST records one, PUT edits a recorded one (the body is the whole form and carries the `revision` as loaded). */
+export const savePurchase = (body: SavePurchaseInput, id?: string) =>
+  id ? api.putParsed(`/purchases/${id}`, body, purchaseDetailSchema) : api.postParsed("/purchases", body, purchaseDetailSchema);
+
+/** The rate of the most recent purchase of each product (the builder's starting rate and hint). A product never bought has no row. */
+export const getPurchaseRates = (ids: string[]) => api.getParsed(`/purchases/last-rates${toQueryString({ productIds: ids.join(",") })}`, z.array(purchaseRateSchema));
 
 /** The purchase CSV: every match of the current filters, saved with the server's own file name. */
 export async function exportPurchasesCsv(params: Record<string, string>): Promise<string> {

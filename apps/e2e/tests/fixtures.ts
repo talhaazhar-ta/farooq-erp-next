@@ -5,7 +5,7 @@ import type { InvoiceDetail, InvoiceListResponse, PaymentDetail, PaymentListResp
 import { ARTIFACTS_DIR, readState } from "../setup/env";
 
 export { expect };
-export { PURCHASE_PRODUCTS, SCENARIO } from "../setup/dataset";
+export { BUYER_PRODUCTS, PURCHASE_PRODUCTS, SCENARIO } from "../setup/dataset";
 export { ARTIFACTS_DIR };
 
 /* ── a signed-in browser page per role ───────────────────────────────────────────────────────── */
@@ -136,8 +136,8 @@ export async function allInvoices(api: Api, q = ""): Promise<InvoiceListResponse
 /** The first godown and a product with plenty of bags in it (the synthetic products each start with 100,000 in both godowns). */
 export async function stockBasics(api: Api): Promise<{ warehouse: WarehouseItem; product: ProductPickItem; product2: ProductPickItem }> {
   const warehouse = (await api.get<WarehouseItem[]>("/warehouses")).find((w) => w.active)!;
-  // the S10 builder products ("Builder …") have few bags on purpose and belong to the builder specs alone
-  const products = (await api.get<ProductPickItem[]>(`/products?warehouseId=${warehouse.id}&limit=40`)).filter((p) => !/^Builder /.test(p.nameEn ?? p.name));
+  // the S10 builder products ("Builder …") have few bags on purpose and belong to the builder specs alone; so do S15's "E2E Buyer …" (the purchase-builder specs buy them)
+  const products = (await api.get<ProductPickItem[]>(`/products?warehouseId=${warehouse.id}&limit=40`)).filter((p) => !/^(Builder |E2E Buyer )/.test(p.nameEn ?? p.name));
   return { warehouse, product: products[0]!, product2: products[1]! };
 }
 

@@ -26,9 +26,9 @@ export function useUnsavedGuard(dirty: boolean) {
   };
 }
 
-export function UnsavedChangesDialog({ open, onStay, onLeave }: { open: boolean; onStay: () => void; onLeave: () => void }) {
+export function UnsavedChangesDialog({ open, onStay, onLeave, noun = "invoice" }: { open: boolean; onStay: () => void; onLeave: () => void; noun?: string }) {
   return (
-    <Dialog open={open} onClose={onStay} title="Leave without saving?" description="You have changes on this invoice that have not been saved. If you leave now they are lost.">
+    <Dialog open={open} onClose={onStay} title="Leave without saving?" description={`You have changes on this ${noun} that have not been saved. If you leave now they are lost.`}>
       <div className="flex flex-wrap justify-end gap-2">
         <Button onClick={onStay} data-testid="stay">
           Keep editing

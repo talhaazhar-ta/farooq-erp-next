@@ -4,6 +4,8 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { businessDateOf, formatPaisaPlain, PURCHASE_LIST_LABELS as L, type PurchaseListItem, type PurchaseListResponse } from "@farooq/shared";
 import { RequirePurchasesAccess } from "../components/guard";
 import { Badge, Banner, Button, EmptyState, ErrorLines, inputClass, LabeledSelect, useToast, cn } from "../components/ui";
+import { canCreatePurchase } from "../lib/access";
+import { useAuth } from "../lib/auth";
 import { fmtDate } from "../lib/format";
 import { useMediaQuery } from "../lib/media";
 import { describeReadDate } from "../lib/payment-filters";
@@ -37,6 +39,8 @@ function PurchasesScreen() {
   const filters = purchaseFiltersFromSearch(useSearch({ from: "/shell/purchases" }));
   const navigate = useNavigate();
   const toast = useToast();
+  const { user } = useAuth();
+  const mayCreate = user ? canCreatePurchase(user.role) : false;
   const today = businessDateOf(new Date());
 
   const latest = useRef(filters);
@@ -102,9 +106,16 @@ function PurchasesScreen() {
             {L.title} — {L.subtitle.charAt(0).toLowerCase() + L.subtitle.slice(1)}.
           </p>
         </div>
-        <Button onClick={exportCsv} disabled={exporting} aria-label="Export CSV">
-          {exporting ? "Exporting…" : "Export CSV"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={exportCsv} disabled={exporting} aria-label="Export CSV">
+            {exporting ? "Exporting…" : "Export CSV"}
+          </Button>
+          {mayCreate ? (
+            <Link to="/purchases/new" className="inline-flex items-center justify-center rounded-md bg-(--color-primary) px-3.5 py-2 text-sm font-medium text-(--color-primary-fg) hover:opacity-90" data-testid="new-purchase">
+              New purchase
+            </Link>
+          ) : null}
+        </div>
       </div>
 
       {data ? <PurchaseKpis kpis={data.kpis} /> : null}

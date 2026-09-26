@@ -28,6 +28,8 @@ export const canOfferEdit = (role: Role, draft: boolean): boolean => (draft ? ca
  */
 export const PURCHASE_READ_PERMISSIONS: readonly Permission[] = ["PURCHASE_CREATE", "TRANSACTION_CORRECT", "FINANCIAL_REPORT_VIEW"];
 export const canReadPurchases = (role: Role): boolean => roleHasAnyPermission(role, PURCHASE_READ_PERMISSIONS);
+/** "New purchase": whoever may record purchases. (An edit is offered by the server's `actions.edit`: PURCHASE_CREATE or TRANSACTION_CORRECT.) */
+export const canCreatePurchase = (role: Role): boolean => roleHasAnyPermission(role, ["PURCHASE_CREATE"]);
 export const canSeeProfit = (role: Role): boolean => roleHasAnyPermission(role, ["PROFIT_VIEW"]);
 
 export const notAvailableTitle = (role: Role): string => `Not available for the ${ROLE_LABELS[role]} role`;

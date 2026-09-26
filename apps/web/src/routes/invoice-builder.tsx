@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { INVOICE_MESSAGES, milliToQty, type InvoiceDetail, type ProductPickItem, type WarehouseItem } from "@farooq/shared";
@@ -16,7 +16,7 @@ import {
   SummaryRows,
 } from "../components/invoice-builder-parts";
 import { UnsavedChangesDialog, useUnsavedGuard } from "../components/unsaved-guard";
-import { Banner, Button, cn, Dialog, ErrorLines, Field, inputClass, Loading, NotAvailable, useToast } from "../components/ui";
+import { Banner, Button, Card, cn, Dialog, ErrorLines, Field, inputClass, Loading, NotAvailable, useToast } from "../components/ui";
 import { useAuth } from "../lib/auth";
 import { canCreateInvoice, canDiscardDraft, canReceive, canSeeProfit, notAvailableTitle } from "../lib/access";
 import { ApiError } from "../lib/api";
@@ -185,18 +185,6 @@ function SaveErrors({ failure, onReload }: { failure: Failure; onReload?: (() =>
         ) : null}
       </Banner>
     </div>
-  );
-}
-
-function Card({ title, aside, children, testId }: { title: string; aside?: ReactNode; children: ReactNode; testId?: string }) {
-  return (
-    <section className="rounded-xl border border-(--color-border) bg-(--color-surface)" data-testid={testId}>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-(--color-border) px-4 py-2">
-        <h2 className="text-sm font-semibold">{title}</h2>
-        {aside}
-      </div>
-      <div className="p-4">{children}</div>
-    </section>
   );
 }
 

@@ -39,7 +39,7 @@ documents, stock value, average-cost maintenance and the COGS journal. Not used 
 | **S9: invoice list, view, print, corrections + e2e ✓** | list/search/cards/CSV, view page, print (classic + standard, A4), discard / cancel / duplicate / change shop, profit block, statement Qty + Receive-panel detail; Playwright; screenshots reviewed | e2e green; screenshots reviewed; reconciliation 0 |
 | **S10: invoice builder + e2e — closes M2 ✓** | new / edit / post, live totals, stock and price hints, payment at sale, edit posted (net, stale revision), unsaved-changes guard, phone layout; Playwright; M2 summary | e2e green; "not seen by a person" list; M2 complete |
 
-## M3 — Purchases (planned 2026-09-25; **S11, S12 and S13 done 2026-09-25; S14 parity catch-up done 2026-09-26**, S15 builder draft)
+## M3 — Purchases (planned 2026-09-25; **S11, S12 and S13 done 2026-09-25; S14 parity catch-up and S15 builder done 2026-09-26 — M3 complete**)
 
 Supplier bills end to end: lines (ordered / received per line, per-line warehouse), `PURCHASE_IN` on the M2 stock ledger, the payment made with the purchase,
 edit (money only ever added, stable line ids, net stock guard, supplier locked once anything is attached), **average-cost maintenance**, list / search / print, the builder.
@@ -60,7 +60,7 @@ Not used by staff; the live ERP stays the system of record.
 | **S12: Purchases service + API ✓** | create, edit (net), payment with the purchase (shared payout core), average-cost writes, permissions, idempotency, concurrency, ledger bridge | rule tests + 403s + bridge green; reconciliation 0 |
 | **S13: list, view, print ✓** | search / filters / cards / CSV, view page, A4 print (server + screens), Playwright | e2e green; screenshots and PDF reviewed — **done (S13; the M1 + M2 walkthrough was waived by the user for it)** |
 | **S14: parity catch-up** (added 2026-09-25; **done 2026-09-26**, `docs/history/S14.md`) | the live ERP's 2026-09-25 changes: sale cost = stock cost + extra cost per bag (`c78659b`), `RECEIPT_EDIT_OUT` in the importer and `carriedCost` (`b2b0778`), real-data proofs pinned to the pre-wipe v692 + v710 (live test data wiped) | rule tests + mutations; reconciliation 0 on v692 / v710 / the post-wipe nightly |
-| **S15: builder — closes M3** | new / edit purchase builder, phone layout, Playwright, M3 summary | e2e green; M3 complete |
+| **S15: builder — closes M3 ✓** (done 2026-09-26, `docs/history/S15.md`) | new / edit purchase builder, phone layout, Playwright, M3 summary | e2e green; M3 complete |
 
 ## After M3 (not yet broken into sessions)
 

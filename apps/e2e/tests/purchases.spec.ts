@@ -259,7 +259,10 @@ test("view: an order nothing has arrived for, and a cancelled purchase", async (
   await page.goto(`/purchases/${B.id}`);
   await expect(page.getByTestId("ordered-banner")).toBeVisible();
   await expect(page.getByTestId("no-stock")).toContainText("Nothing has arrived");
-  await expect(page.getByTestId("reason-change-supplier")).toHaveText("Editing a purchase on screen is not available yet."); // allowed by the server; no form yet
+  // nothing is paid against it: the server allows both, and the buttons open the purchase form (S15)
+  await expect(page.getByTestId("action-edit")).toBeEnabled();
+  await expect(page.getByTestId("action-change-supplier")).toBeEnabled();
+  await expect(page.getByTestId("reason-change-supplier")).toHaveText("Open Edit purchase and choose another supplier there.");
   const cancelled = (await purchasesList(api, "q=PUR-2026-900090&limit=5")).items[0]!;
   await page.goto(`/purchases/${cancelled.id}`);
   await expect(page.getByTestId("cancelled-banner")).toBeVisible();
