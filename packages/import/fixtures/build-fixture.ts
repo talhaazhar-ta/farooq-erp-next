@@ -466,6 +466,11 @@ export function buildFixture() {
       movement("2026-02-22", "07:00:10", "p-2", "wh-1", "PURCHASE_REVERSAL_OUT", -6, "PURCHASE_EDIT", "PUR-2026-000003", { note: "Reversed on purchase cancel" }),
       // pur-4: 60 of the 100 ordered bags arrived (pur-2 received nothing: no movement)
       movement("2026-02-25", "05:00:10", "p-3", "wh-2", "PURCHASE_IN", 60, "PURCHASE", "PUR-2026-000004", { unitCostP: 1_000, note: "الفلاح ملز" }),
+      // S14 (old repo b2b0778): RCV-2026-000004 was EDITED on 02-26 from 30 bags @ 800.00 to 30 @ 900.00 — `StockDocs.editReceive` takes the old line back OUT at its OLD cost, dated as the
+      // original receipt (RECEIPT_EDIT_OUT / STOCK_RECEIPT_EDIT), then posts the corrected one. The bags net 0 (p-1@wh-2 stays 32); carried cost p-1@wh-2 = (30x80,000 - 30x80,000 + 30x90,000) / 30 = 90,000
+      // (WITHOUT the subtraction it would be the 85,000 average of both). The stock row keeps its recorded average 80,000, which `costOf` reads first.
+      movement("2026-02-26", "10:00:00", "p-1", "wh-2", "RECEIPT_EDIT_OUT", -30, "STOCK_RECEIPT_EDIT", "RCV-2026-000004", { unitCostP: 80_000, date: "2026-01-10", note: "Reversed on receipt edit" }),
+      movement("2026-02-26", "10:00:01", "p-1", "wh-2", "ADJUSTMENT_IN", 30, "STOCK_RECEIPT", "RCV-2026-000004", { unitCostP: 90_000 }),
     ],
     // Landed cost (a deferred store — M6 — but reconciliation READS it): lc-1 put 9,000 of unloading on pur-1's second line (3 bags: 3,000 a bag), lc-2 put 5,000
     // on its first line and was CANCELLED, so that line's operational share is 0 and only lc-1 counts. Shapes are the real v710 rows' key sets.

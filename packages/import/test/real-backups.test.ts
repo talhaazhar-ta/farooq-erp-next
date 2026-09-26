@@ -1,8 +1,6 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { TEST_ADMIN_URL } from "@farooq/db/testing";
+import { TEST_ADMIN_URL, minimumCountProblems, realBackups } from "@farooq/db/testing";
 import { checkEnvelope, exitCodeFor, formatReport, reconcile, runImport } from "../src/index.js";
 import { IMPORT_OPTS } from "./helpers.js";
 
@@ -11,20 +9,25 @@ import { IMPORT_OPTS } from "./helpers.js";
  * invoice<->stock and (S11) purchase totals, purchase<->stock, average cost and the landed-cost shares all reconcile with 0 differences. The backups are business data (gitignored, under /data/), so this
  * runs only where they exist — never in CI. It prints counts and totals only, never a row.
  *
- * The two newest `business-*.json` nightlies are used (file names sort by date).
+ * S14: the datasets are NAMED, not "the newest two" — the live test data was wiped on 2026-09-25, so a newest-by-date pick would soon have been an
+ * empty backup that passes anything. `realBackups()` (@farooq/db/testing) gives the two last pre-wipe nightlies (v692, v710: PINNED, each with the
+ * minimum rows it really holds, so a replaced / truncated file FAILS instead of passing empty) plus the newest later nightly as an extra "current"
+ * dataset, which only has to import and reconcile.
  */
-const dataDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../data");
-const files = existsSync(dataDir)
-  ? readdirSync(dataDir)
-      .filter((f) => /^business-.*\.json$/.test(f))
-      .sort()
-      .slice(-2)
-  : [];
+const { pinned, current, all: files } = realBackups();
 
 describe.skipIf(files.length === 0)("real nightly backups (local only)", () => {
-  for (const file of files) {
+  it("a machine that has real backups has BOTH pinned pre-wipe nightlies (a missing one would silently shrink the proof); the 'current' extra is named", () => {
+    expect(pinned.map((p) => p.label)).toEqual(["v692", "v710"]);
+    console.log(current ? `current dataset: ${current.file}` : "no nightly newer than v710 on this machine (the 'current' slot is empty)");
+  });
+
+  for (const ref of files) {
+    const file = `${ref.label} ${ref.file}`;
     it(`${file}: import + reconcile — 0 balance, invoice-total, stock, invoice/stock, purchase-total, purchase/stock, average-cost and landed-cost differences`, async () => {
-      const backup = checkEnvelope(JSON.parse(readFileSync(path.join(dataDir, file), "utf8")));
+      const backup = checkEnvelope(JSON.parse(readFileSync(ref.path, "utf8")));
+      // a pinned dataset is never allowed to be (near-)empty; the current one has no minimum — the client may have wiped it
+      expect(minimumCountProblems(backup.data as never, ref.minimums)).toEqual([]);
       const result = await runImport(backup, IMPORT_OPTS);
       const report = await reconcile(backup, TEST_ADMIN_URL);
       console.log(`\n=== ${file} ===\nmigrated invoices: ${result.migratedInvoices.length}; warnings: ${result.warnings.length}\n${formatReport(report)}`);
@@ -52,10 +55,10 @@ describe.skipIf(files.length === 0)("real nightly backups (local only)", () => {
 });
 
 /** The first real landed cost (S11): the 2026-09-24 nightly (v710) carries one POSTED landed-cost entry, spread over one purchase line. */
-describe.skipIf(!files.some((f) => /v710/.test(f)))("the first real landed cost (v710, local only)", () => {
+describe.skipIf(!pinned.some((f) => f.label === "v710"))("the first real landed cost (v710, local only)", () => {
   it("5 purchases / 6 lines reconcile; the line carrying the landed cost holds exactly the landed-cost rows' share, 6 stock rows match, the 7th average is kept from before", async () => {
-    const file = files.find((f) => /v710/.test(f))!;
-    const backup = checkEnvelope(JSON.parse(readFileSync(path.join(dataDir, file), "utf8")));
+    const ref = pinned.find((f) => f.label === "v710")!;
+    const backup = checkEnvelope(JSON.parse(readFileSync(ref.path, "utf8")));
     await runImport(backup, IMPORT_OPTS);
     const report = await reconcile(backup, TEST_ADMIN_URL);
     expect(report.purchases).toMatchObject({ checked: 5, lines: 6, cancelled: 0, migrated: [], noLines: [], totalMismatches: [] });

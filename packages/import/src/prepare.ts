@@ -659,6 +659,15 @@ export function prepareImport(raw: unknown): Prepared {
     const ref = optStr("stockMovements", d, "ref");
     const delta = qtyMilli("stockMovements", d, "qtyDelta", { sign: "any" });
     if (delta === 0) throw new ImportError(`${where("stockMovements", d)}.qtyDelta: a movement of zero is not a movement`);
+    // S14 (old repo b2b0778, StockDocs.editReceive): an edited Add-stock receipt takes each old line back OUT (qty < 0) at that
+    // line's cost, written as `unitCostP: o.unitCostP || 0` — so the field is always there (0 = the old line had no cost). One
+    // that is missing or positive would corrupt `carriedCost`, so it aborts the import instead of being guessed at.
+    if (kind === "RECEIPT_EDIT_OUT") {
+      if (delta > 0) throw new ImportError(`${where("stockMovements", d)}.qtyDelta: a RECEIPT_EDIT_OUT takes bags back out of stock, so it must be negative (got ${d.qtyDelta})`);
+      if (d.unitCostP === undefined || d.unitCostP === null) {
+        throw new ImportError(`${where("stockMovements", d)}.unitCostP: a RECEIPT_EDIT_OUT carries the old line's cost (0 when it had none) — the field is missing`);
+      }
+    }
     let sourceType: string | null = refType || null;
     let sourceId: string | null = null;
     if ((INVOICE_REF_TYPES as readonly string[]).includes(refType)) {

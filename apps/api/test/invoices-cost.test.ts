@@ -96,6 +96,67 @@ describe("costOf — the legacy priority order, first hit wins", () => {
   });
 });
 
+describe("carriedCost after an edited Add-stock receipt (S14, old repo b2b0778 — `RECEIPT_EDIT_OUT`)", () => {
+  // The legacy `test-receipt-edit.mjs` case in paisa: a receipt of 10 @ 500.00, edited to 10 @ 600.00. `editReceive` takes the old
+  // lines back out AT THEIR OLD COST (RECEIPT_EDIT_OUT) and posts the corrected ones (ADJUSTMENT_IN), so the corrected cost REPLACES the old one.
+  it("10 @ 500 edited to 10 @ 600 → carried 600, not the 550 an average of both would give", async () => {
+    const wh = await seedWarehouse(h);
+    const p = await seedProduct(h);
+    await move(p.id, wh.id, "ADJUSTMENT_IN", 10_000, 50_000);
+    expect(await carriedCost(h.db, p.id, wh.id)).toBe(50_000);
+    await move(p.id, wh.id, "RECEIPT_EDIT_OUT", -10_000, 50_000);
+    await move(p.id, wh.id, "ADJUSTMENT_IN", 10_000, 60_000);
+    expect(await carriedCost(h.db, p.id, wh.id)).toBe(60_000); // (10×500 − 10×500 + 10×600) / 10
+    expect(await costOf(h.db, p.id, wh.id)).toBe(60_000);
+  });
+
+  it("a receipt edited down to no lines carries nothing (net qty 0) — costOf falls through to the list buy price", async () => {
+    const wh = await seedWarehouse(h);
+    const p = await seedProduct(h, { buyP: 111_000 });
+    await move(p.id, wh.id, "ADJUSTMENT_IN", 10_000, 50_000);
+    await move(p.id, wh.id, "RECEIPT_EDIT_OUT", -10_000, 50_000);
+    expect(await carriedCost(h.db, p.id, wh.id)).toBe(0);
+    expect(await costOf(h.db, p.id, wh.id)).toBe(111_000);
+  });
+
+  it("edited down to fewer bags: 10 @ 500 → 6 @ 500 carries 500 (the reversal takes 10 out, 6 go in)", async () => {
+    const wh = await seedWarehouse(h);
+    const p = await seedProduct(h);
+    await move(p.id, wh.id, "ADJUSTMENT_IN", 10_000, 50_000);
+    await move(p.id, wh.id, "RECEIPT_EDIT_OUT", -10_000, 50_000);
+    await move(p.id, wh.id, "ADJUSTMENT_IN", 6_000, 50_000);
+    expect(await carriedCost(h.db, p.id, wh.id)).toBe(50_000);
+  });
+
+  it("the result is a cost only when BOTH the net qty and the net cost are > 0 (a reversal costed higher than what came in is 0, never a negative cost)", async () => {
+    const wh = await seedWarehouse(h);
+    const p = await seedProduct(h);
+    await move(p.id, wh.id, "ADJUSTMENT_IN", 10_000, 10_000); // cost 100,000
+    await move(p.id, wh.id, "ADJUSTMENT_IN", 5_000, 5_000); // +25,000
+    await move(p.id, wh.id, "RECEIPT_EDIT_OUT", -10_000, 20_000); // −200,000  → qty 5, cost −75,000
+    expect(await carriedCost(h.db, p.id, wh.id)).toBe(0);
+  });
+
+  it("noise that must not count: a reversal with no cost, in the damaged bucket, or (impossible in the legacy) with a positive qty", async () => {
+    const wh = await seedWarehouse(h);
+    const p = await seedProduct(h);
+    await move(p.id, wh.id, "ADJUSTMENT_IN", 10_000, 50_000);
+    await move(p.id, wh.id, "RECEIPT_EDIT_OUT", -4_000, null); // the old line had no cost: nothing to take back
+    await move(p.id, wh.id, "RECEIPT_EDIT_OUT", -4_000, 90_000, "damaged");
+    await move(p.id, wh.id, "RECEIPT_EDIT_OUT", 4_000, 90_000); // not a carried kind with qty > 0
+    expect(await carriedCost(h.db, p.id, wh.id)).toBe(50_000);
+  });
+
+  it("a reversal in ANOTHER godown does not touch this godown's carried cost", async () => {
+    const [a, b] = [await seedWarehouse(h), await seedWarehouse(h)];
+    const p = await seedProduct(h);
+    await move(p.id, a.id, "ADJUSTMENT_IN", 10_000, 50_000);
+    await move(p.id, b.id, "ADJUSTMENT_IN", 10_000, 70_000);
+    await move(p.id, b.id, "RECEIPT_EDIT_OUT", -10_000, 70_000);
+    expect(await carriedCost(h.db, p.id, a.id)).toBe(50_000);
+  });
+});
+
 describe("the invoice line's cost snapshot is that figure, taken from the LINE's godown", () => {
   it("a sale from a godown with a carried cost of 2,500 snapshots 250,000; from one with nothing, the list price", async () => {
     const s = await scenario(h, { buyP: 240_000, stock: 1 });

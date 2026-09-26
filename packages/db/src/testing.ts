@@ -74,3 +74,5 @@ export async function startTestDatabase(): Promise<() => Promise<void>> {
     for (const [event, listener] of addedByEmbedded) (process as NodeJS.EventEmitter).removeListener(event, listener as (...a: unknown[]) => void);
   };
 }
+
+export * from "./real-backups.js";

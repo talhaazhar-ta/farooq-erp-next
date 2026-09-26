@@ -1,5 +1,6 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { companyProfile, products, stockLevels, stockMovements, type Executor, type Tx } from "@farooq/db";
+import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
+import { companyProfile, products, readProfitCostBasis, stockLevels, stockMovements, type Executor, type Tx } from "@farooq/db";
+import { saleCostOf as saleCostFrom, type SaleCost } from "@farooq/shared";
 
 /**
  * Stock for the invoice service (S7). `stock_movements` is the record (append-only), `stock_levels` the current figure;
@@ -127,8 +128,12 @@ const CARRIED_KINDS = ["OPENING_STOCK", "ADJUSTMENT_IN", "TRANSFER_IN", "CONVERT
 
 /**
  * The weighted cost of stock that came in without moving the average (legacy `Inventory.carriedCost`, scoped to one
- * warehouse): sellable-bucket, positive movements of the carried kinds that recorded a cost. The importer stores a legacy
- * cost of 0 as NULL, which is exactly the legacy `!(unitCostP > 0)` test. 0 when there is none.
+ * warehouse), as changed by old repo `b2b0778` (S14): sellable-bucket movements that recorded a cost (> 0; the importer stores a
+ * legacy 0 as NULL, exactly the legacy `!(unitCostP > 0)` test) —
+ *   - positive movements of the carried kinds count qty x cost;
+ *   - a `RECEIPT_EDIT_OUT` (an edited Add-stock receipt taking its old line back out at the OLD cost, qty < 0) SUBTRACTS its qty x cost,
+ *     so a corrected cost replaces the old one instead of being averaged with it;
+ * and the result is `round(cost / qty)` only when BOTH the net qty and the net cost are > 0, else 0.
  */
 export async function carriedCost(db: Executor, productId: string, warehouseId: string): Promise<number> {
   const [row] = await db
@@ -142,13 +147,16 @@ export async function carriedCost(db: Executor, productId: string, warehouseId: 
         eq(stockMovements.productId, productId),
         eq(stockMovements.warehouseId, warehouseId),
         eq(stockMovements.bucket, "stock"),
-        inArray(stockMovements.kind, CARRIED_KINDS),
-        sql`${stockMovements.qtyDeltaMilli} > 0`,
         sql`${stockMovements.unitCostP} > 0`,
+        or(
+          and(inArray(stockMovements.kind, CARRIED_KINDS), sql`${stockMovements.qtyDeltaMilli} > 0`),
+          and(eq(stockMovements.kind, "RECEIPT_EDIT_OUT"), sql`${stockMovements.qtyDeltaMilli} < 0`),
+        ),
       ),
     );
   const qty = Number(row?.qty ?? 0);
-  return qty ? Math.round(Number(row!.cost) / qty) : 0;
+  const cost = Number(row?.cost ?? 0);
+  return qty > 0 && cost > 0 ? Math.round(cost / qty) : 0;
 }
 
 /**
@@ -179,6 +187,18 @@ export async function costOf(db: Executor, productId: string, warehouseId: strin
 
   const [p] = await db.select({ buyP: products.buyP }).from(products).where(eq(products.id, productId));
   return p?.buyP && p.buyP > 0 ? p.buyP : 0;
+}
+
+/**
+ * What one bag of a SALE is costed at (S14, old repo `c78659b`, `Inventory.saleCostOf`): `costOf` + the product's extra cost per
+ * bag (`products.extra_p`; not under the `PURCHASE` basis; only while the stock cost is known). Feeds the invoice line's cost
+ * snapshot and the builder's price hint. It is a READ: `avg_cost_p`, `last_cost_p` and the purchase average never carry the extra.
+ */
+export async function saleCostOf(db: Executor, productId: string, warehouseId: string): Promise<SaleCost> {
+  const stockCost = await costOf(db, productId, warehouseId);
+  if (!(stockCost > 0)) return saleCostFrom(0, null, "LANDED");
+  const [p] = await db.select({ extraP: products.extraP }).from(products).where(eq(products.id, productId));
+  return saleCostFrom(stockCost, p?.extraP, await readProfitCostBasis(db));
 }
 
 /** The company setting "Allow selling below zero stock" (imported legacy settings, `company_profile.doc.allowNegativeStock`); missing = false. */

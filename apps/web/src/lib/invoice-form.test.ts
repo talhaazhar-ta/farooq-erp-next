@@ -399,6 +399,16 @@ describe("price hints: below cost / below the minimum / low margin — only when
     expect(ok?.text).toContain("margin 33.33%");
   });
 
+  it("S14 (c78659b): the cost includes the extra cost per bag and the note shows the legacy breakdown — the client's 3,000 + 200", () => {
+    const x = pick({ costP: 320_000, extraP: 20_000, stockCostP: 300_000, minSellP: null });
+    const ok = priceHint(true, x, l("3400"));
+    expect(ok?.kind).toBe("ok");
+    expect(ok?.text).toBe("Cost PKR 3,200 (stock PKR 3,000 + extra PKR 200)/bag · profit PKR 2,000 · margin 5.88%.");
+    expect(priceHint(true, x, l("3100"))?.text).toBe("Below cost. Cost PKR 3,200 (stock PKR 3,000 + extra PKR 200)/bag against PKR 3,100 — a loss of PKR 1,000 on this line.");
+    // no extra: no breakdown
+    expect(priceHint(true, pick({ costP: 300_000, extraP: 0, minSellP: null }), l("3400"))?.text).toBe("Cost PKR 3,000/bag · profit PKR 4,000 · margin 11.76%.");
+  });
+
   it("no cost recorded is said, not treated as free", () => {
     expect(priceHint(true, pick({ costP: 0 }), l("1500"))?.kind).toBe("no-cost");
     expect(priceHint(true, pick({ costP: null }), l("1500"))?.kind).toBe("no-cost");

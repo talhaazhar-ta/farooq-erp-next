@@ -15,6 +15,7 @@ export const MOVEMENT_KINDS = [
   "TRANSFER_IN", "TRANSFER_OUT", "ADJUSTMENT_IN", "ADJUSTMENT_OUT", "SALE_REVERSAL_IN", "PURCHASE_REVERSAL_OUT",
   "REPLACEMENT_OUT", "SUPPLIER_REPLACEMENT_IN", "STOCK_WRITE_OFF", "DISPATCH_OUT", "MILL_ISSUE_OUT", "MILL_RECEIPT_IN",
   "MILL_ISSUE_REVERSAL_IN", "MILL_RECEIPT_REVERSAL_OUT", "CONVERT_OUT", "CONVERT_IN",
+  "RECEIPT_EDIT_OUT", // S14 (old repo b2b0778): an edited Add-stock receipt takes its old lines back out AT THEIR OLD COST
   "ADJUSTMENT", // 06-wiring.js `moveStock`: the fallback kind for a screen that names none
 ] as const;
 export type MovementKind = (typeof MOVEMENT_KINDS)[number];
@@ -32,7 +33,7 @@ export const PURCHASE_REF_TYPES = ["PURCHASE", "PURCHASE_EDIT"] as const;
 export const MOVEMENT_REF_TYPES = [
   ...INVOICE_REF_TYPES, ...PURCHASE_REF_TYPES,
   "CUSTOMER_RETURN", "SUPPLIER_RETURN", "SUPPLIER_REPLACEMENT", "WRITE_OFF", "MIGRATION",
-  "TRANSFER", "STOCK_RECEIPT", "ADJUSTMENT", "CONVERSION", "DISPATCH",
+  "TRANSFER", "STOCK_RECEIPT", "STOCK_RECEIPT_EDIT", "ADJUSTMENT", "CONVERSION", "DISPATCH",
   "MILLING", "MILLING_CANCEL", "MILL_ARRIVAL", "MILL_ARRIVAL_CANCEL",
   "Purchase", "Sale", "Dispatch", "Transfer out", "Transfer in", "",
 ] as const;

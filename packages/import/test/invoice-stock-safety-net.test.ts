@@ -155,7 +155,7 @@ describe("stock: legacy inventory = stock level = sum of movements", () => {
     red(r);
     expect(r.stock.mismatches).toEqual([{ product: "p-3", warehouse: "wh-1", bucket: "stock", legacyMilli: 38_000, levelMilli: 38_000, movementsMilli: 43_000 }]);
     expect(r.invoiceStock.mismatches).toEqual([]); // not an invoice movement
-    expect(r.counts.find((c) => c.store === "stockMovements")).toMatchObject({ backup: 30, loaded: 31, match: false }); // and the row count no longer matches
+    expect(r.counts.find((c) => c.store === "stockMovements")).toMatchObject({ backup: 32, loaded: 33, match: false }); // and the row count no longer matches
   });
 
   it("the damaged bucket is checked separately from the sellable one", async () => {

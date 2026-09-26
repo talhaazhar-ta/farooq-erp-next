@@ -327,9 +327,15 @@ export const productPickItemSchema = z.object({
   taxPct: z.number().nullable(),
   /** Bags in the sellable bucket, per warehouse, in bags (not thousandths). */
   available: z.array(z.object({ warehouseId: z.string().uuid(), quantity: z.number() })),
-  /** PROFIT_VIEW only (null otherwise): the cost the next sale of one bag would be given, and the price-panel buy price. */
+  /**
+   * PROFIT_VIEW only (null otherwise): the cost the next sale of one bag would be given (S14: `saleCostOf` = stock cost + the
+   * product's extra cost per bag), and the price-panel buy price.
+   */
   costP: z.number().int().nullable(),
   buyP: z.number().int().nullable(),
+  /** PROFIT_VIEW only (ABSENT otherwise): `costP`'s breakdown — the stock cost (`costOf`) and the extra added to it (0 when none). */
+  stockCostP: z.number().int().optional(),
+  extraP: z.number().int().optional(),
 });
 export type ProductPickItem = z.infer<typeof productPickItemSchema>;
 

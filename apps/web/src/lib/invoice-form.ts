@@ -411,12 +411,15 @@ const rupees = (paisa: number): string => `PKR ${formatPaisa(paisa)}`;
  */
 export function priceHint(
   showCost: boolean,
-  product: Pick<ProductPickItem, "costP" | "minSellP"> | undefined,
+  product: Pick<ProductPickItem, "costP" | "minSellP" | "extraP"> | undefined,
   line: Pick<FormLine, "quantity" | "rate" | "discount">,
 ): PriceHint | null {
   if (!showCost || !product) return null;
   const costP = product.costP ?? 0;
   if (costP <= 0) return { kind: "no-cost", text: "No purchase cost recorded yet for this product — profit cannot be shown." };
+  // S14 (old repo c78659b): the cost includes the product's extra cost per bag; the legacy note shows the breakdown
+  const extraP = product.extraP ?? 0;
+  const costTxt = rupees(costP) + (extraP ? ` (stock ${rupees(costP - extraP)} + extra ${rupees(extraP)})` : "");
   const q = parseQuantity(line.quantity);
   const rate = parseAmount(line.rate);
   const disc = parseAmount(line.discount);
@@ -428,15 +431,15 @@ export function priceHint(
   const unitRevenue = Math.round(revenue / qty);
   const margin = revenue ? (profit / revenue) * 100 : 0;
   if (totalCost > 0 && revenue < totalCost) {
-    return { kind: "below-cost", text: `Below cost. Cost ${rupees(costP)}/bag against ${rupees(unitRevenue)} — a loss of ${rupees(Math.abs(profit))} on this line.` };
+    return { kind: "below-cost", text: `Below cost. Cost ${costTxt}/bag against ${rupees(unitRevenue)} — a loss of ${rupees(Math.abs(profit))} on this line.` };
   }
   if (product.minSellP && unitRevenue < product.minSellP) {
-    return { kind: "below-min", text: `Below the minimum price of ${rupees(product.minSellP)}/bag. Cost ${rupees(costP)}/bag · profit ${rupees(profit)} · margin ${margin.toFixed(2)}%.` };
+    return { kind: "below-min", text: `Below the minimum price of ${rupees(product.minSellP)}/bag. Cost ${costTxt}/bag · profit ${rupees(profit)} · margin ${margin.toFixed(2)}%.` };
   }
   if (margin < LOW_MARGIN_PCT) {
-    return { kind: "low-margin", text: `Low margin. Cost ${rupees(costP)}/bag · profit ${rupees(profit)} · margin ${margin.toFixed(2)}%.` };
+    return { kind: "low-margin", text: `Low margin. Cost ${costTxt}/bag · profit ${rupees(profit)} · margin ${margin.toFixed(2)}%.` };
   }
-  return { kind: "ok", text: `Cost ${rupees(costP)}/bag · profit ${rupees(profit)} · margin ${margin.toFixed(2)}%.` };
+  return { kind: "ok", text: `Cost ${costTxt}/bag · profit ${rupees(profit)} · margin ${margin.toFixed(2)}%.` };
 }
 
 /* ── what the server refused ───────────────────────────────────────────────────────────────────── */

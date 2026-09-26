@@ -47,7 +47,7 @@ import { blankToNull, cleanText, formatRegion, writeReceipt, type Actor } from "
 import { loadFullLedger, windowStatement } from "../statements/ledger.js";
 import { loadInvoiceDetail, paidOn } from "./invoices.queries.js";
 import { cancelRefusal, changeShopRefusals, editRefusal, receiptsOn, type InvoiceForRules } from "./rules.js";
-import { allowNegativeStock, applyMovement, costOf, lockStockLevels, pairKey, type StockPair } from "./stock.js";
+import { allowNegativeStock, applyMovement, lockStockLevels, saleCostOf, pairKey, type StockPair } from "./stock.js";
 import { validateInvoice, type LineForValidation } from "./validate.js";
 
 export interface InvoiceWriteResult {
@@ -493,7 +493,7 @@ export class InvoicesService {
       const p = productById.get(l.productId)!;
       const t = totals.lines[i]!;
       const key = pairKey(l);
-      if (!costCache.has(key)) costCache.set(key, await costOf(tx, l.productId, l.warehouseId));
+      if (!costCache.has(key)) costCache.set(key, (await saleCostOf(tx, l.productId, l.warehouseId)).costP);
       const row = {
         invoiceId,
         sortOrder: i,

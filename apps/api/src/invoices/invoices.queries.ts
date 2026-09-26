@@ -14,7 +14,7 @@ import {
   type Role,
   type WarehouseItem,
 } from "@farooq/shared";
-import { costOf } from "./stock.js";
+import { saleCostOf } from "./stock.js";
 import { activeReturns, cancelRefusal, changeShopRefusals, editRefusal, receiptsOn } from "./rules.js";
 
 /** Read side of invoices. Every function takes an `Executor` (the pool or an open transaction). */
@@ -301,6 +301,8 @@ export async function pickProducts(db: Executor, query: ProductPickQuery, role: 
   const out: ProductPickItem[] = [];
   for (const p of page) {
     const here = query.warehouseId ?? (byProduct.get(p.id) ?? [])[0]?.warehouseId;
+    // S14 (c78659b): the next sale's cost = stock cost + the product's extra per bag; the breakdown rides along for PROFIT_VIEW only
+    const sale = showCost && here ? await saleCostOf(db, p.id, here) : null;
     out.push({
       id: p.id,
       name: p.name,
@@ -316,8 +318,9 @@ export async function pickProducts(db: Executor, query: ProductPickQuery, role: 
       lastRateP: lastRate.get(p.id) ?? null,
       taxPct: p.taxPct,
       available: (byProduct.get(p.id) ?? []).map((l) => ({ warehouseId: l.warehouseId, quantity: milliToQty(l.qtyMilli) })),
-      costP: showCost && here ? await costOf(db, p.id, here) : null,
+      costP: sale ? sale.costP : null,
       buyP: showCost ? p.buyP : null,
+      ...(sale ? { stockCostP: sale.stockCostP, extraP: sale.extraP } : {}),
     });
   }
   return out;

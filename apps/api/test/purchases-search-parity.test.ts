@@ -1,9 +1,7 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { exitCodeFor, reconcile, runImport, type Backup } from "@farooq/import";
-import { TEST_ADMIN_URL } from "@farooq/db/testing";
+import { TEST_ADMIN_URL, minimumCountProblems, realBackups, type RealBackupRef } from "@farooq/db/testing";
 import type { PurchaseListResponse } from "@farooq/shared";
 import { createHarness, type Harness, type Session } from "./helpers/harness.js";
 import { legacyToolbar, purchaseReference, type LegacyPurchaseStore, type PurchaseState } from "./helpers/legacy-purchase-search.js";
@@ -15,7 +13,7 @@ import { FIXTURE_PATH } from "./helpers/synthetic-payments.js";
  *   1. the committed fixture (4 purchases: two godowns, a draft, a cancelled one, a part delivery, a voucher),
  *   2. a deterministic ~164-purchase synthetic backup (helpers/synthetic-purchases.ts — Urdu / English, a renamed supplier, charges,
  *      part deliveries, orders, cancelled bills, vouchers incl. reversed ones), which itself must reconcile with 0 differences,
- *   3. the newest real nightly backup, when present on this machine (never in CI).
+ *   3. the REAL nightlies, when present on this machine (never in CI): the two last pre-wipe backups, pinned by name (v692, v710 — S14; the near-empty post-wipe one is not used here).
  * For every case of a table built from the data:
  *   a. `GET /purchases` = the S13 rule written a second time (`purchaseReference`): the same ids in the same order, the same total,
  *      the same four cards, the same payment counts, the same reading of the box, the same "why it matched" lines;
@@ -23,14 +21,14 @@ import { FIXTURE_PATH } from "./helpers/synthetic-payments.js";
  *      filter there): every purchase the legacy toolbar (`legacyToolbar`, a literal port of
  *      `PAGES.purchases` + `applyFilters` + `Mirror`) shows for the same box and filters is in the answer.
  */
-const here = path.dirname(fileURLToPath(import.meta.url));
-const dataDir = path.join(here, "../../../data");
-const realBackups = existsSync(dataDir)
-  ? readdirSync(dataDir)
-      .filter((f) => /^business-.*\.json$/.test(f))
-      .sort()
-  : [];
-const REAL_BACKUP = realBackups.length ? path.join(dataDir, realBackups[realBackups.length - 1]!) : null;
+const REAL_BACKUPS = realBackups().pinned; // v692 + v710, the pre-wipe nightlies (S14). The post-wipe "current" one is near-empty: it only has to import and reconcile (real-backups.test.ts) and would rightly fail the non-trivial-table guards here
+/** A REAL dataset, pinned by name (S14, `realBackups` in @farooq/db/testing): a pinned file that holds fewer rows than it really has FAILS (it would pass anything). */
+const loadReal = (ref: RealBackupRef) => (): Backup => {
+  const b = JSON.parse(readFileSync(ref.path, "utf8")) as Backup;
+  const short = minimumCountProblems(b.data as never, ref.minimums);
+  if (short.length) throw new Error(`${ref.file}: ${short.join("; ")}`);
+  return b;
+};
 
 interface Case {
   name: string;
@@ -214,4 +212,4 @@ function defineTable(name: string, load: () => Backup, minCases: number): void {
 
 defineTable("fixture", () => JSON.parse(readFileSync(FIXTURE_PATH, "utf8")) as Backup, 25);
 defineTable("synthetic ~164 purchases", () => buildSyntheticPurchases(), 80);
-if (REAL_BACKUP) defineTable(`real ${path.basename(REAL_BACKUP)}`, () => JSON.parse(readFileSync(REAL_BACKUP, "utf8")) as Backup, 25);
+for (const ref of REAL_BACKUPS) defineTable(`real ${ref.file}`, loadReal(ref), 25);

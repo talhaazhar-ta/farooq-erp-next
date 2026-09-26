@@ -1,9 +1,7 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { exitCodeFor, reconcile, runImport, type Backup } from "@farooq/import";
-import { TEST_ADMIN_URL } from "@farooq/db/testing";
+import { TEST_ADMIN_URL, minimumCountProblems, realBackups, type RealBackupRef } from "@farooq/db/testing";
 import { INVOICE_STATUSES, type InvoiceListResponse } from "@farooq/shared";
 import { createHarness, type Harness, type Session } from "./helpers/harness.js";
 import { createLegacyInvoiceSearch, type InvoiceState, type LegacyInvoiceStore } from "./helpers/legacy-invoice-search.js";
@@ -19,17 +17,17 @@ import { FIXTURE_PATH } from "./helpers/synthetic-payments.js";
  *   1. the committed synthetic fixture (8 invoices with lines, every ledger and stock branch),
  *   2. a deterministic ~300-invoice synthetic backup WITH LINES (every status, Urdu / English names with letter variants,
  *      renamed shops, receipts incl. reversed ones, credit notes, two godowns),
- *   3. the newest real nightly backup, when present on this machine (gitignored business data: skipped in CI).
+ *   3. the REAL nightlies, when present on this machine (gitignored business data: skipped in CI): the two last pre-wipe backups, pinned by name (v692, v710 — S14; the near-empty post-wipe one is not used here).
  * The query table is built FROM the data (words, numbers and dates that exist in it).
  */
-const here = path.dirname(fileURLToPath(import.meta.url));
-const dataDir = path.join(here, "../../../data");
-const realBackups = existsSync(dataDir)
-  ? readdirSync(dataDir)
-      .filter((f) => /^business-.*\.json$/.test(f))
-      .sort()
-  : [];
-const REAL_BACKUP = realBackups.length ? path.join(dataDir, realBackups[realBackups.length - 1]!) : null;
+const REAL_BACKUPS = realBackups().pinned; // v692 + v710, the pre-wipe nightlies (S14). The post-wipe "current" one is near-empty: it only has to import and reconcile (real-backups.test.ts) and would rightly fail the non-trivial-table guards here
+/** A REAL dataset, pinned by name (S14, `realBackups` in @farooq/db/testing): a pinned file that holds fewer rows than it really has FAILS (it would pass anything). */
+const loadReal = (ref: RealBackupRef) => (): Backup => {
+  const b = JSON.parse(readFileSync(ref.path, "utf8")) as Backup;
+  const short = minimumCountProblems(b.data as never, ref.minimums);
+  if (short.length) throw new Error(`${ref.file}: ${short.join("; ")}`);
+  return b;
+};
 
 interface Case {
   name: string;
@@ -392,4 +390,4 @@ function defineTable(name: string, load: () => Backup, minCases: number): void {
 
 defineTable("fixture", () => JSON.parse(readFileSync(FIXTURE_PATH, "utf8")) as Backup, 45);
 defineTable("synthetic ~300 invoices", () => buildSyntheticInvoices(), 100);
-if (REAL_BACKUP) defineTable("real nightly backup (local only)", () => JSON.parse(readFileSync(REAL_BACKUP, "utf8")) as Backup, 25);
+for (const ref of REAL_BACKUPS) defineTable(`real ${ref.label} ${ref.file} (local only)`, loadReal(ref), 25);

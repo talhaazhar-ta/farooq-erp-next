@@ -12,7 +12,7 @@ export async function seedWarehouse(h: Harness, name = `Godown ${uniq()}`) {
 
 export async function seedProduct(
   h: Harness,
-  o: Partial<{ name: string; nameEn: string; nameUr: string; brand: string; category: string; weightKg: number; sellP: number; buyP: number; minSellP: number; sku: string; taxPct: number }> = {},
+  o: Partial<{ name: string; nameEn: string; nameUr: string; brand: string; category: string; weightKg: number; sellP: number; buyP: number; extraP: number; minSellP: number; sku: string; taxPct: number }> = {},
 ) {
   const name = o.name ?? `Rice ${uniq()}`;
   const [p] = await h.db
@@ -27,6 +27,7 @@ export async function seedProduct(
       weightKg: o.weightKg ?? 50,
       sellP: o.sellP ?? null,
       buyP: o.buyP ?? null,
+      extraP: o.extraP ?? null,
       minSellP: o.minSellP ?? null,
       sku: o.sku ?? null,
       taxPct: o.taxPct ?? null,

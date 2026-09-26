@@ -21,7 +21,7 @@ let before: Awaited<ReturnType<typeof snapshot>>;
 beforeAll(async () => {
   await runImport(fixture(), IMPORT_OPTS);
   before = await snapshot();
-  expect(before).toMatchObject({ purchases: 4, items: 5, levels: 7, movements: 30 }); // a populated database, so "unchanged" is meaningful
+  expect(before).toMatchObject({ purchases: 4, items: 5, levels: 7, movements: 32 }); // a populated database, so "unchanged" is meaningful
 });
 afterAll(async () => {
   await sql.end();

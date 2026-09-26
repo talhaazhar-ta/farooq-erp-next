@@ -1,34 +1,28 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { checkEnvelope, exitCodeFor, reconcile, runImport, type Backup } from "@farooq/import";
-import { TEST_ADMIN_URL } from "@farooq/db/testing";
+import { TEST_ADMIN_URL, minimumCountProblems, realBackups } from "@farooq/db/testing";
 import { createHarness, type Harness, type Session } from "./helpers/harness.js";
 import { getPur, purEditBody, putPur } from "./helpers/purchases.js";
 
 /**
  * S12 on REAL data (local only — the backups are business data, gitignored under /data/, never in CI; only counts are printed): import the
- * newest nightly, then save EVERY real, non-cancelled purchase back through `PUT /purchases/:id` with nothing changed — as an office user
+ * pinned v710 nightly (S14: never "the newest" — the live data was wiped on 2026-09-25), then save EVERY real, non-cancelled purchase back through `PUT /purchases/:id` with nothing changed — as an office user
  * opening a bill and pressing Save would. An edit that changes nothing must change nothing: the same totals, the same paid figures, the same
  * bags, the same supplier balances, the same journal, the same average cost on every stock row (the legacy weighted average recomputed by
  * the S12 writer equals what the legacy itself stored, including the first real landed cost), and the reconciliation against the untouched
  * backup still has 0 differences.
  */
-const dataDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../data");
-const newest = existsSync(dataDir)
-  ? readdirSync(dataDir)
-      .filter((f) => /^business-.*\.json$/.test(f))
-      .sort()
-      .slice(-1)[0]
-  : undefined;
+// S14: pinned by name — v710 (the richest pre-wipe nightly: 5 purchases, 6 lines, the first real landed cost). "The newest" would be the empty post-wipe data.
+const v710 = realBackups().pinned.find((b) => b.label === "v710");
 
-describe.skipIf(!newest)("the newest real nightly: every purchase saved back unchanged (local only)", () => {
+describe.skipIf(!v710)("real v710: every purchase saved back unchanged (local only)", () => {
   let h: Harness;
   let owner: Session;
   let backup: Backup;
   beforeAll(async () => {
-    backup = checkEnvelope(JSON.parse(readFileSync(path.join(dataDir, newest!), "utf8")));
+    backup = checkEnvelope(JSON.parse(readFileSync(v710!.path, "utf8")));
+    expect(minimumCountProblems(backup.data as never, v710!.minimums)).toEqual([]);
     await runImport(backup, { databaseUrl: TEST_ADMIN_URL, sourceName: "purchases-real-backup" });
     h = await createHarness();
     owner = await h.session("OWNER");
@@ -69,7 +63,7 @@ describe.skipIf(!newest)("the newest real nightly: every purchase saved back unc
       expect(r.body.receivedQuantity, detail.number).toBe(detail.receivedQuantity);
       saved++;
     }
-    console.log(`\n=== ${newest} ===\npurchases saved back unchanged: ${saved} of ${ids.length} (${lines} lines)`);
+    console.log(`\n=== ${v710!.file} ===\npurchases saved back unchanged: ${saved} of ${ids.length} (${lines} lines)`);
 
     const after = await state();
     expect(after.levels).toEqual(before.levels); // bags AND average cost of every stock row

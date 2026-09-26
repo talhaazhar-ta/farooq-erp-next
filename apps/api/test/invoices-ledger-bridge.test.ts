@@ -264,8 +264,8 @@ describe("invoice ledger bridge: import the fixture, operate through the API, mi
       expect(report.stock.mismatches).toEqual([]);
       expect(report.invoiceStock.mismatches).toEqual([]);
       // The single deliberate difference from the legacy: an EDIT posts the DIFFERENCE (one movement) where the legacy reversed
-      // every old line and deducted the new ones (two movements). 41 movement docs in the hand-updated JSON (the fixture's 30 + 11), 39 rows in the database.
-      expect(report.counts.filter((c) => c.class === "imported" && !c.match).map((c) => [c.store, c.backup, c.loaded])).toEqual([["stockMovements", 41, 39]]);
+      // every old line and deducted the new ones (two movements). 43 movement docs in the hand-updated JSON (the fixture's 32 + 11), 41 rows in the database.
+      expect(report.counts.filter((c) => c.class === "imported" && !c.match).map((c) => [c.store, c.backup, c.loaded])).toEqual([["stockMovements", 43, 41]]);
       expect(report.failures).toHaveLength(1);
     });
   });
