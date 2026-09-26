@@ -52,7 +52,7 @@ Not used by staff; the live ERP stays the system of record.
 3. Legacy bugs fixed: paid > total / negative on a new purchase; line discount above the line amount; part-delivery unit cost (÷ ordered, not ÷ received);
    the print's "Bags received" showing ordered bags.
 4. No drafts, cancel, delete, separate Change supplier or `receiveMore` (the legacy has none reachable).
-5. S11 (data only) may start before the M1 + M2 walkthrough by a person; S13 / S15 (screens) wait for it (S13: waived by the user; S15: not waived — decided 2026-09-25).
+5. ~~The person walkthrough gate~~ — **cancelled by the user on 2026-09-26**; no session waits for it (S13 ran with it waived).
 
 | Session | Scope | Done when |
 |---|---|---|

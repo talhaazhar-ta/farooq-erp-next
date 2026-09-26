@@ -190,3 +190,4 @@ S9 list / view / print / corrections ✓ → **S10 invoice builder + e2e ✓**).
 - `docs/ROADMAP.md` — all milestones and sessions, in order.
 - `docs/PARITY.md` — legacy-module checklist + the log of old-ERP changes since this project started.
 - `docs/sessions/S<N>.md` — the plan for one implementation session.
+- `docs/HUB.md` — how the planning hub plans milestones, checks finished sessions and hands over (read it if you are the hub).

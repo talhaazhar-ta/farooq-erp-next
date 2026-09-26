@@ -1,6 +1,6 @@
 # Status
 
-**Last updated:** 2026-09-26 (S14 session). **Milestones 1 (Payments) and 2 (Invoices) are complete. M3 — Purchases: S11 (data, import, reconciliation), S12 (service + API), S13 (list / search / CSV / print + screens) and S14 (parity catch-up with the live ERP's 2026-09-25 changes) are done; next is S15 (the purchase builder, closes M3), which the user decided must wait for a person to walk the M1 + M2 + M3 screens. The walkthrough is still outstanding.**
+**Last updated:** 2026-09-26 (S14 session). **Milestones 1 (Payments) and 2 (Invoices) are complete. M3 — Purchases: S11 (data, import, reconciliation), S12 (service + API), S13 (list / search / CSV / print + screens) and S14 (parity catch-up with the live ERP's 2026-09-25 changes) are done; next is S15 (the purchase builder, closes M3) — not blocked: the user cancelled the person walkthrough on 2026-09-26. After S15 a fresh planning-hub session plans M4 (`docs/HUB.md`).**
 Nothing is deployed; the live ERP is untouched and is still the only system of record. **No member of staff has used any screen.**
 
 **How this file works:** it holds only the *current* state — where we are, the baseline numbers, the rules still in force, open questions, the next step. Each session's full write-up (what was built, verification tables,
@@ -97,11 +97,12 @@ Every screen (now including the purchase list, view and print; the builder's new
 
 ## Next step
 
-1. **A person walks the M1 + M2 + M3 screens on a real machine and a real phone, and prints one receipt, one invoice and one purchase.** Waived for S13 only; the user decided (2026-09-25) it is **required before S15**. Nothing else is unblocked until then except server-only work.
-2. **S15 — purchase builder, closes M3** (`docs/sessions/S15.md`, draft; "Corrections after S14" and "after S13" first). The hub finalises it after the walkthrough. S14 changed nothing the builder talks to; a purchase never carries the product's extra cost per bag.
-3. **When a real Add-stock receipt is edited in the live ERP** the next nightly will contain the first real `RECEIPT_EDIT_OUT`: the importer accepts it and reconciliation covers it (the fixture proves it); if the fields differ from what `StockDocs.editReceive` writes, the import aborts naming them. Editing a receipt in the rebuild is M4 (`StockDocs.editReceive`, PARITY row).
-4. M3 decisions to know: `received_qty_milli` is not capped at ordered; the supplier-return lock reads `returns.legacy_doc` + `purchase_items.returned_qty_milli` until M5; the e2e dataset has a lined purchase, a cancelled one and a `PUR` counter.
-5. Old-ERP changes: `b2b0778` and `c78659b` **ported in S14**, `bfa4b25` not applicable (all in the PARITY change log). Old repo HEAD when S14 finished: `bfa4b25` (2026-09-25 23:29) — nothing newer.
+1. **S15 — purchase builder, closes M3** (`docs/sessions/S15.md`, **Final** 2026-09-26; read "Planner decisions after S14" first). Not blocked.
+2. After S15: **M3 complete** → a **fresh planning-hub session** plans M4 (Stock / warehouses). How the hub works: `docs/HUB.md`.
+3. **The person walkthrough was cancelled by the user (2026-09-26)** — no session waits for it. "Not yet seen by a person" below is information for before any cutover, not a gate.
+4. When a real Add-stock receipt is edited in the live ERP, the next nightly holds the first real `RECEIPT_EDIT_OUT`: the importer accepts it (the fixture proves it); different fields abort the import naming them.
+5. M3 decisions to know: `received_qty_milli` is not capped at ordered; the supplier-return lock reads `returns.legacy_doc` + `purchase_items.returned_qty_milli` until M5; the e2e dataset has a lined purchase, a cancelled one and a `PUR` counter.
+6. Old-ERP changes: `b2b0778` and `c78659b` ported in S14, `bfa4b25` not applicable (PARITY change log). Old repo checked by the hub 2026-09-26: nothing newer than `bfa4b25`.
 
 ## CI
 
